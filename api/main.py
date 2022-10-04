@@ -26,9 +26,11 @@ class AnonymizedTextWithTags(BaseModel):
     raw_text: str
     anonymized_text: str
     tags: List[Tag]
+    
+VERSION = "0.0.1"
 
 
-api = FastAPI(title="Anonymized text", version="0.0.1")
+api = FastAPI(title="Anonymized text", version=VERSION)
 
 default_responses = {200: {"description": "OK"}}
 
@@ -36,7 +38,7 @@ default_responses = {200: {"description": "OK"}}
 @api.get("/", tags=["Default"], responses=default_responses)
 def get_index():
     """Returns a general message"""
-    return {"message": "Documentation is at /docs"}
+    return {"message": "Documentation is at /docs", "version": VERSION}
 
 
 @api.get(
