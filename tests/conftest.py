@@ -1,8 +1,12 @@
 import datetime
 
 import config
+import nltk
 import pytest
 import requests
+
+
+nltk.download("punkt")
 
 
 @pytest.fixture
