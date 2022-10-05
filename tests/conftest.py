@@ -1,14 +1,17 @@
+import datetime
+
+import config
 import pytest
 import requests
-import datetime
-import config
 
 
 @pytest.fixture
 def fake_article_data():
     data = {
         "author": "fake author",
-        "date_published": (datetime.datetime.utcnow() - datetime.timedelta(days=-7)).isoformat(),
+        "date_published": (
+            datetime.datetime.utcnow() - datetime.timedelta(days=-7)
+        ).isoformat(),
         "section": "fake section",
         "url": "http://fake_url.com",
         "headline": "fake headline",
@@ -30,7 +33,7 @@ def article(request, fake_article_data):
 
         response.raise_for_status()
         article = response.json()
-        
+
         object_created_list.append(str(article["object_id"]))
 
         return article

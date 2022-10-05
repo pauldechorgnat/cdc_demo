@@ -1,13 +1,21 @@
-from fastapi import FastAPI, HTTPException, Query, Path
-from pydantic import BaseModel
-from typing import List
-from flair.models import SequenceTagger
-from .config import ANONYMIZED_TAGS_DESCRIPTION, ANONYMIZED_TAGS
-from .model import get_entities, anonymize_sentence, replace_text
-from pymongo import MongoClient
 import datetime
-from .utils import format_object_id
+from typing import List
+
 import bson
+from fastapi import FastAPI
+from fastapi import HTTPException
+from fastapi import Path
+from fastapi import Query
+from flair.models import SequenceTagger
+from pydantic import BaseModel
+from pymongo import MongoClient
+
+from .config import ANONYMIZED_TAGS
+from .config import ANONYMIZED_TAGS_DESCRIPTION
+from .model import anonymize_sentence
+from .model import get_entities
+from .model import replace_text
+from .utils import format_object_id
 
 tagger = SequenceTagger.load("ner")
 
@@ -295,12 +303,12 @@ def delete_article(category: str, object_id: str):
     },
 )
 def update_article_data(category: str, object_id: str, new_article: UpdateArticleData):
-    
+
     object_id = bson.objectid.ObjectId(object_id)
-    
+
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
-    
+
     old_article_events = db[category].find_one(
         filter={"_id": object_id}, projection={"events": 1, "_id": 0}
     )
@@ -316,11 +324,14 @@ def update_article_data(category: str, object_id: str, new_article: UpdateArticl
             "date": datetime.datetime.utcnow(),
         }
     ]
-    
+
     from pprint import pprint
+
     pprint(new_article_data)
-    
-    db[category].update_one(filter={"_id": object_id}, update={"$set": new_article_data})
+
+    db[category].update_one(
+        filter={"_id": object_id}, update={"$set": new_article_data}
+    )
 
     final_data = db[category].find_one(filter={"_id": object_id})
 

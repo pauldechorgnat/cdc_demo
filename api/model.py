@@ -53,7 +53,7 @@ def replace_text(raw_sentence: str, entities: dict) -> str:
 
     for text, tag in entities.items():
         new_sentence = new_sentence.replace(text, tag)
-        
+
     return new_sentence
 
 

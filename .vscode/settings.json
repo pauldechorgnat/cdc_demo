@@ -1,0 +1,6 @@
+{
+    "python.formatting.provider": "black",
+    "python.defaultInterpreterPath": "python",
+    "python.formatting.autopep8Path": "black",
+
+}
