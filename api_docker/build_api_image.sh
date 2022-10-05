@@ -6,6 +6,6 @@ cp requirements.txt ./api_docker/src/requirements.txt
 
 cp -r api api_docker/src
 
-docker image build api_docker/. -t my_image
+docker image build api_docker/. -t pauldechorgnat/article_api
 
 rm -r ./api_docker/src

@@ -19,3 +19,90 @@ Ce repo est un petit exercice qui consiste à créer un modèle d'anonymisation 
 ## Source de données
 
 Ma source de données est un ensemble d'articles du média américain [CNN](https://www.kaggle.com/datasets/hadasu92/cnn-articles-after-basic-cleaning?resource=download).
+
+## Comment utiliser ce repo
+
+Pour télécharger le contenu du repo, il faut tout d'abord le clôner:
+
+```sh
+git clone https://github.com/pauldechorgnat/cdc_demo.git
+cd cdc_demo
+```
+
+_A partir de maintenant, toutes les commandes proposées sont lancées depuis la racine du repo._
+
+Une fois téléchargé, on va créer deux environnements virtuels `venv` et `venv-dev`. Le premier est l'environnement de production alors que le second est l'environnement de développement. On y retrouve notamment les librairies de test et de linting (ainsi que `pre-commit`).
+
+```sh
+python3 -m venv venv
+python3 -m venv venv-dev
+```
+
+Les fichiers `requirements` sont respectivement `requirements.txt` et `requirements-dev.txt`.
+
+```sh
+# dans un premier terminal
+source venv/bin/activate
+pip3 install -r requirements.txt
+
+# dans un deuxième terminal
+source venv-dev/bin/activate
+pip3 install -r requirements-dev.txt
+```
+
+L'environnement `venv` ne devrait servir qu'à faire tourner l'API. `venv-dev` est utilisé pour tout le reste.
+
+### Lancement de l'API
+
+Pour lancer l'API, on va utiliser l'environnement `venv`:
+
+```sh
+source venv/bin/activate
+```
+
+Pour fonctionner, l'API a besoin d'une base MongoDB disponible sur le port 27017 de la machine. J'utilise Docker pour instancier une telle base:
+
+```sh
+docker container run --name my_mongo -d --rm -v `pwd`/../mongo_docker/data:/data/db -p 27017:27017 mongo:latest
+```
+
+Une fois le container lancé, on peut lancer l'API:
+
+```sh
+python3 -m uvicorn api.main:api --reload
+```
+
+L'API est alors disponible sur le port `8000` de la [machine](http://localhost:8000). L'API étant construite avec FastAPI, la documentation est disponible à l'adresse [http://localhost:8000/docs](http://localhost:8000/docs).
+
+### Développement
+
+Pour développer l'API, il nous faut utiliser `pre-commit`. Pour l'installer, il faut exécuter la commande suivante:
+
+```sh
+source venv-dev/bin/activate
+pre-commit install
+```
+
+Le [fichier de configuration](/.pre-commit-config.yaml) de `pre-commit` est déja présent dans le repo.
+
+### Lancement des tests
+
+Pour lancer les tests, on pourra utiliser l'environnement `venv-dev` et exécuter la commande suivante:
+
+```sh
+source venv-dev/bin/activate
+python3 -m pytest tests
+
+# ou pour lancer un seul ficher de test:
+python3 -m pytest tests/test_model.py
+```
+
+### Docker
+
+On peut facilement créer une image Docker contenant notre API en utilisant le fichier [build_api_image](/api_dockerl/build_api_image.sh):
+
+```sh
+sh api_docker/build_api_image.sh
+```
+
+Par défaut cette image s'appelle `pauldechorgnat/article_api`.
