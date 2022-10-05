@@ -1,0 +1,26 @@
+version: '3.9'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: my_mongo
+    ports:
+      - "27017:27017"
+    networks:
+      - my_network
+    volumes:
+      - ../mongo_docker/data:/data/db:rw
+  api:
+    image: pauldechorgnat/article_api:latest
+    container_name: my_api
+    ports:
+    - "8000:8000"
+    networks:
+      - my_network
+    environment:
+      - ENVIRONMENT=docker-compose
+    depends_on:
+      - mongodb
+
+networks:
+  my_network:

@@ -1,9 +1,5 @@
 import config
 import requests
-from pymongo import MongoClient
-
-client = MongoClient()
-db = client["articles"]
 
 
 def test_get_articles():
@@ -28,9 +24,7 @@ def test_get_articles():
 
 
 def test_get_articles_section(article):
-    article1 = article(section="fake_section")
-    article2 = article(section="fake_section")
-    article3 = article(section="fake_section")
+    articles = [article(section="fake_section") for _ in range(3)]
 
     response = requests.get(
         url=f"{config.API_URL}/data/articles", params={"sections": ["fake_section"]}
@@ -40,7 +34,7 @@ def test_get_articles_section(article):
 
     data = response.json()
 
-    assert len(data) == 3
+    assert len(data) == len(articles)
     for i in data:
         assert i["section"] == "fake_section"
 
@@ -66,3 +60,4 @@ def test_update_article(article):
     new_events = data.pop("events")
 
     assert data == {**my_article, **new_data}
+    assert len(old_events) == len(new_events) - 1

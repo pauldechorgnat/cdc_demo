@@ -1,11 +1,9 @@
-import sys
-
-sys.path.append(".")
-
-from api.model import get_entities, anonymize_sentence, replace_text
-
-from flair.data import Sentence
 from flair.models import SequenceTagger
+
+from api.model import anonymize_sentence
+from api.model import get_entities
+from api.model import replace_text
+
 
 tagger = SequenceTagger.load("ner")
 

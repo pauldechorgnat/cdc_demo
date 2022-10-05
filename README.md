@@ -63,7 +63,7 @@ source venv/bin/activate
 Pour fonctionner, l'API a besoin d'une base MongoDB disponible sur le port 27017 de la machine. J'utilise Docker pour instancier une telle base:
 
 ```sh
-docker container run --name my_mongo -d --rm -v `pwd`/../mongo_docker/data:/data/db -p 27017:27017 mongo:latest
+docker container run --name my_mongo -d --rm -p 27017:27017 -v `pwd`/../mongo_docker/data:/data/db -p 27017:27017 mongo:latest
 ```
 
 Une fois le container lancé, on peut lancer l'API:
@@ -106,3 +106,17 @@ sh api_docker/build_api_image.sh
 ```
 
 Par défaut cette image s'appelle `pauldechorgnat/article_api`.
+
+Pour lancer l'API via docker, il suffit de faire:
+
+```sh
+docker container run -p 8000:8000 pauldechorgnat/article_api:latest
+```
+
+### Docker-Compose
+
+J'ai aussi créé un [fichier](docker-compose/docker-compose.yaml) `docker-compose.yaml` pour lancer les deux containers en même temps. Une fois l'image `pauldechorgnat/article_api` créée, on peut simplement lancer l'ensemble avec:
+
+```sh
+ docker-compose -f ./docker-compose/docker-compose.yaml up
+```

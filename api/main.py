@@ -1,10 +1,10 @@
 import datetime
+import logging
 from typing import List
 
 import bson
 from fastapi import FastAPI
 from fastapi import HTTPException
-from fastapi import Path
 from fastapi import Query
 from flair.models import SequenceTagger
 from pydantic import BaseModel
@@ -12,12 +12,21 @@ from pymongo import MongoClient
 
 from .config import ANONYMIZED_TAGS
 from .config import ANONYMIZED_TAGS_DESCRIPTION
-from .model import anonymize_sentence
+from .config import ENVIRONMENT
+from .config import MONGO_URL
 from .model import get_entities
 from .model import replace_text
 from .utils import format_object_id
 
 tagger = SequenceTagger.load("ner")
+
+VERSION = "0.0.1"
+
+client = MongoClient(MONGO_URL)
+db = client["articles"]
+
+CATEGORIES = db.list_collection_names()
+logging.info("MongoDB connected")
 
 
 class Sentence(BaseModel):
@@ -44,7 +53,7 @@ class NewArticle(BaseModel):
     author: str = "Analysis by Stephen Collinson, CNN"
     date_published: datetime.datetime = datetime.datetime(2021, 12, 1, 14, 32, 33)
     section: str = "golf"
-    url: str = "https://www.cnn.com/2021/12/01/golf/tiger-woods-end-of-era-meanwhile-spt-intl/index.html"
+    url: str = "https://www.cnn.com/.../index.html"
     headline: str = "Tiger Woods: Is this the end of his era? - CNN"
     keywords: List[str] = ["golf", "tiger", "woods", "end", "era", "cnn"]
     raw_text: str = "..."
@@ -78,14 +87,6 @@ class Article(NewArticle):
     manual_anonymized_tags: List[Tag] = []
 
 
-VERSION = "0.0.1"
-
-client = MongoClient()
-db = client["articles"]
-
-CATEGORIES = db.list_collection_names()
-
-
 api = FastAPI(title="Anonymized text", version=VERSION)
 
 default_responses = {200: {"description": "OK"}}
@@ -94,7 +95,11 @@ default_responses = {200: {"description": "OK"}}
 @api.get("/", tags=["Default"], responses=default_responses)
 def get_index():
     """Returns a general message"""
-    return {"message": "Documentation is at /docs", "version": VERSION}
+    return {
+        "message": "Documentation is at /docs",
+        "version": VERSION,
+        "environment": ENVIRONMENT,
+    }
 
 
 @api.get(
