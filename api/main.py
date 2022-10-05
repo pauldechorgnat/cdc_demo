@@ -30,35 +30,46 @@ class AnonymizedTextWithTags(BaseModel):
     raw_text: str
     anonymized_text: str
     tags: List[Tag]
-    
+
 
 class NewArticle(BaseModel):
     author: str = "Analysis by Stephen Collinson, CNN"
     date_published: datetime.datetime = datetime.datetime(2021, 12, 1, 14, 32, 33)
     section: str = "golf"
-    url:str = "https://www.cnn.com/2021/12/01/golf/tiger-woods-end-of-era-meanwhile-spt-intl/index.html"
-    headline:str = "Tiger Woods: Is this the end of his era? - CNN"
-    keywords:List[str] = ["golf", "tiger", "woods", "end", "era", "cnn"]
-    raw_text:str = "..."
+    url: str = "https://www.cnn.com/2021/12/01/golf/tiger-woods-end-of-era-meanwhile-spt-intl/index.html"
+    headline: str = "Tiger Woods: Is this the end of his era? - CNN"
+    keywords: List[str] = ["golf", "tiger", "woods", "end", "era", "cnn"]
+    raw_text: str = "..."
     source: str = "sport"
+
+
+class UpdateArticleData(BaseModel):
+    author: str = None
+    date_published: datetime.datetime = None
+    section: str = None
+    url: str = None
+    headline: str = None
+    keywords: List[str] = None
+    raw_text: str = None
+
 
 class Event(BaseModel):
     type: str = "insertion"
     author: str = "paul_dechorgnat"
     date: datetime.datetime = datetime.datetime(2021, 12, 1, 14, 32, 33)
     mode: str = None
-    
-    
+
+
 class Article(NewArticle):
     object_id: str = "633c6473b9daeb8a90169dcb"
     hash: int = 533794461304174741
-    automatic_anonymized_text:str = "..."
-    anonymized_text:str = "..."
-    events:List[Event]
-    auto_anonymized_tags : List[Tag] = []
+    automatic_anonymized_text: str = "..."
+    anonymized_text: str = "..."
+    events: List[Event]
+    auto_anonymized_tags: List[Tag] = []
     manual_anonymized_tags: List[Tag] = []
-    
-    
+
+
 VERSION = "0.0.1"
 
 client = MongoClient()
@@ -141,13 +152,8 @@ def post_anonymize_sentence(sentence: Sentence):
 @api.get(
     "/data/articles",
     tags=["Data"],
-    responses={
-        200: {
-            "description":"OK",
-            "model": List[Article]
-        }
-    }
-    )
+    responses={200: {"description": "OK", "model": List[Article]}},
+)
 def get_articles(
     category: List[str] = Query(default=None),
     date_start: datetime.datetime = Query(default=None),
@@ -155,43 +161,39 @@ def get_articles(
     sections: List[str] = Query(default=None),
 ):
 
-    collections =  category if category else CATEGORIES
+    collections = category if category else CATEGORIES
 
     mongo_filter = {}
-    
+
     if sections:
         mongo_filter["section"] = {"$in": sections}
-        
+
     if date_start:
         if date_end:
-            
+
             mongo_filter["date_published"] = {"$gt": date_start, "$lt": date_end}
         else:
             mongo_filter["date_published"] = {"$gt": date_start}
     else:
         if date_end:
             mongo_filter["date_published"] = {"$lt": date_end}
-    
+
     results = []
     for c in collections:
         results.extend(map(format_object_id, db[c].find(filter=mongo_filter)))
 
     results = [Article(**r) for r in results]
-    
+
     return results
+
 
 @api.get(
     "/data/articles/{category}/{object_id}",
     tags=["Data"],
     responses={
-        200: {
-            "description":"OK",
-            "model": Article
-        },
-        404: {
-            "description": "Article or category not found"
-        }
-    }
+        200: {"description": "OK", "model": Article},
+        404: {"description": "Article or category not found"},
+    },
 )
 def get_article(category: str, object_id: str):
     if category not in CATEGORIES:
@@ -200,21 +202,16 @@ def get_article(category: str, object_id: str):
         result = db[category].find_one({"_id": bson.objectid.ObjectId(object_id)})
     except bson.errors.InvalidId:
         raise HTTPException(422, detail=f"Id '{object_id}' is not valid.")
-    
+
     if not result:
         raise HTTPException(404, detail=f"Article with id '{object_id}' not found.")
     return Article(**format_object_id(result))
-        
-    
+
+
 @api.post(
     "/data/articles",
     tags=["Data"],
-    responses={
-        200: {
-            "description": "OK",
-            "model": Article
-        }
-    }
+    responses={200: {"description": "OK", "model": Article}},
 )
 def post_new_article(article: NewArticle):
     category = article.source
@@ -224,29 +221,23 @@ def post_new_article(article: NewArticle):
     article_data = article.dict()
     article_data["hash"] = hash(article_data["raw_text"])
     article_data["events"] = [
-            {
-                "type": "insertion",
-                "author": "paul_dechorgnat", # TODO: change this
-                "date": insertion_date,
-                "mode": "single",
-            }
-        ]
+        {
+            "type": "insertion",
+            "author": "paul_dechorgnat",  # TODO: change this
+            "date": insertion_date,
+            "mode": "single",
+        }
+    ]
     result = db[category].insert_one(article_data)
     new_article = db[category].find_one(result.inserted_id)
-    
-    
+
     return Article(**format_object_id(new_article))
 
 
 @api.post(
     "/data/articles/batch",
     tags=["Data"],
-    responses={
-        200: {
-            "description": "OK",
-            "model": List[Article]
-        }
-    }
+    responses={200: {"description": "OK", "model": List[Article]}},
 )
 def post_new_articles_batch(articles_data: List[NewArticle]):
     articles = {}
@@ -261,33 +252,30 @@ def post_new_articles_batch(articles_data: List[NewArticle]):
         article_data["events"] = [
             {
                 "type": "insertion",
-                "author": "paul_dechorgnat", # TODO: change this
+                "author": "paul_dechorgnat",  # TODO: change this
                 "date": insertion_date,
                 "mode": "batch",
             }
         ]
         articles[category] = articles.get(category, []) + [article_data]
-    
+
     new_articles = []
-    
+
     for c in articles:
         r = db[c].insert_many(articles[c])
         inserted_ids = r.inserted_ids
         new_articles.extend(db[c].find({"_id": {"$in": inserted_ids}}))
-    
+
     return [Article(**format_object_id(a)) for a in new_articles]
-        
+
+
 @api.delete(
-    "data/articles/{category}/{object_id}",
+    "/data/articles/{category}/{object_id}",
     tags=["Data"],
     responses={
-        200: {
-            "description": "OK"
-        },
-        404: {
-            "description": "Article or category not found"
-        }
-    }
+        200: {"description": "OK"},
+        404: {"description": "Article or category not found"},
+    },
 )
 def delete_article(category: str, object_id: str):
     if category not in CATEGORIES:
@@ -295,42 +283,45 @@ def delete_article(category: str, object_id: str):
     result = db[category].delete_one(filter={"_id": bson.objectid.ObjectId(object_id)})
     if result.deleted_count == 0:
         raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
-    return {
-        "message": "object deleted"
-    }
+    return {"message": "object deleted"}
+
 
 @api.put(
     "/data/articles/{category}/{object_id}",
     tags=["Data"],
     responses={
-        200: {
-            "description": "OK",
-            "model": Article
-        },
-        404: {
-            "description": "Article or category not found"
-        }
-    }
+        200: {"description": "OK", "model": Article},
+        404: {"description": "Article or category not found"},
+    },
 )
-def update_article_data(category: str, object_id: str, new_article: NewArticle):
+def update_article_data(category: str, object_id: str, new_article: UpdateArticleData):
+    
+    object_id = bson.objectid.ObjectId(object_id)
+    
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
-    old_article_data = db[category].find_one({"_id": bson.objectid.ObjectId(object_id)})
     
-    if not old_article_data:
+    old_article_events = db[category].find_one(
+        filter={"_id": object_id}, projection={"events": 1, "_id": 0}
+    )
+
+    if not old_article_events:
         raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
-    
-    new_article_data = {**old_article_data, **new_article.dict()}
-    object_id = new_article_data.pop("_id")
+
+    new_article_data = {**new_article.dict(exclude_unset=True), **old_article_events}
     new_article_data["events"] += [
         {
             "type": "modification",
-            "author": "paul_dechorgnat", # TODO: change that
-            "date": datetime.datetime.utcnow()
+            "author": "paul_dechorgnat",  # TODO: change that
+            "date": datetime.datetime.utcnow(),
         }
     ]
-    db[category].replace_one(filter={"_id": object_id}, replacement=new_article_data)
     
+    from pprint import pprint
+    pprint(new_article_data)
+    
+    db[category].update_one(filter={"_id": object_id}, update={"$set": new_article_data})
+
     final_data = db[category].find_one(filter={"_id": object_id})
-    
+
     return Article(**format_object_id(final_data))
