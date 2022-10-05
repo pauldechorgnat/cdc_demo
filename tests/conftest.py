@@ -7,6 +7,7 @@ import requests
 
 
 nltk.download("punkt")
+nltk.download("stopwords")
 
 
 @pytest.fixture
