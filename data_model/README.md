@@ -83,11 +83,11 @@ Les autres champs seront générés lors de l'insertion ou lors de la correction
 
 L'API doit donc avoir les points de terminaison suivants:
 
-- `GET /data/articles`: renvoie les articles. On ajoutera des possiblité d'ajouter des filtres.
-- `GET/data/articles/_id`: renvoie un article. On ajoutera des possiblité d'ajouter des filtres.
-- `POST /data/articles`: permet l'insertion d'un article.
-- `POST /data/articles/batch`: permet l'insertion massive d'articles (un seul fichier json).
-- `PUT /data/articles/_id`: permet la modification d'un article.
-- `PUT /data/article/_id/auto`: déclenche la pseudonymisation automatique de l'article.
-- `PUT /data/article/_id/manual`: permet la pseudonymisation de l'article manuelle.
-- `DELETE /data/articles/_id`: permet la suppression d'un article.
+- [x] `GET /data/articles`: renvoie les articles. On ajoutera des possiblité d'ajouter des filtres.
+- [x] `GET/data/articles/_id`: renvoie un article. On ajoutera des possiblité d'ajouter des filtres.
+- [x] `POST /data/articles`: permet l'insertion d'un article.
+- [x] `POST /data/articles/batch`: permet l'insertion massive d'articles (un seul fichier json).
+- [x] `PUT /data/articles/_id`: permet la modification d'un article.
+- [ ] `PUT /data/article/_id/auto`: déclenche la pseudonymisation automatique de l'article.
+- [ ] `PUT /data/article/_id/manual`: permet la pseudonymisation de l'article manuelle.
+- [x] `DELETE /data/articles/_id`: permet la suppression d'un article.
