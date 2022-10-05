@@ -17,7 +17,7 @@ jobs:
           python-version: "3.8"
 
       - name: Install dependencies
-        run: pip install -r black flake8 reorder-python-imports
+        run: pip install black flake8 reorder-python-imports
 
       - name: Lint api with flake8
         run: flake8 --max-line-length=88 api
