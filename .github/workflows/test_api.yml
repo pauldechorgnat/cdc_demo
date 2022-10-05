@@ -32,7 +32,10 @@ jobs:
         run: black tests -l88 --check
 
       - name: Lint api with reorder-python-imports
-        run: reorder-python-imports api/**/*.py
+        run: reorder-python-imports api
+
+      - name: Lint api with reorder-python-imports
+        run: reorder-python-imports tests
 
       - name: Lint tests with reorder-python-imports
         run: reorder-python-imports tests/*.py
