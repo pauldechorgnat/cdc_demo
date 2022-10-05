@@ -7,3 +7,4 @@ api_docker/*
 !api_docker/build_api_image.sh
 !api_docker/Dockerfile
 !api_docker/starter.py
+mongo_docker/data

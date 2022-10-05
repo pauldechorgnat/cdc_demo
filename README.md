@@ -6,8 +6,15 @@ Ce repo est un petit exercice qui consiste à créer un modèle d'anonymisation 
 
 - [x] Trouver un jeu de données contenant des articles avec des noms propres
 - [x] Créer un modèle d'anonymisation en utilisant un modèle de NER
-- [ ] Créer une API qui permet d'exposer le modèle
+- [x] Créer une API qui permet d'exposer le modèle
 - [ ] Mettre une base de données MongoDB (dockerisée) pour exposer les données
+- [ ] Créer un modèle de données cohérent
+- [ ] Créer un fichier `docker-compose.yml` pour lancer le service
+- [ ] Créer les Github Actions de test + lint
+- [ ] Trouver un support de déploiement (Azure, AWS ?)
+- [ ] Créer les Github Actions de déploiement
+- [ ] Gérer la sécurité de l'application
+- [ ] Gérer les environnements de dev et de prod
 
 ## Source de données
 
