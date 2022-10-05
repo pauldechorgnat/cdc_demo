@@ -60,7 +60,7 @@ jobs:
         uses: supercharge/mongodb-github-action@1.8.0
 
       - name: Fill DB
-        uses: python3 tests/fill_db.py
+        run: python3 tests/fill_db.py
 
       - name: Run API
         run: python3 -m uvicorn api.main:api &
