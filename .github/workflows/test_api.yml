@@ -1,0 +1,66 @@
+name: Test and lint API
+
+on:
+  pull_request:
+    branches:
+      - master
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.8"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint api with flake8
+        run: flake8 --max-line-length=88 api
+
+      - name: Lint tests with flake8
+        run: flake8 --max-line-length=88 tests
+
+      - name: Lint api with black
+        run: black api -l88 --check
+
+      - name: Lint tests with black
+        run: black tests -l88 --check
+
+      - name: Lint api with reorder-python-imports
+        run: reorder-python-imports api/**/*.py
+
+      - name: Lint tests with reorder-python-imports
+        run: reorder-python-imports tests/*.py
+
+  test:
+    name: test
+    needs: lint
+
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.8"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.8.0
+
+      - name: Run API
+        run: python3 -m uvicorn api.main:api &
+
+      - name: Run tests
+        run: python3 -m python3 -m pytest tests -vv --disable-warnings
