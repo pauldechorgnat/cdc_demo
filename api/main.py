@@ -341,3 +341,50 @@ def update_article_data(category: str, object_id: str, new_article: UpdateArticl
     final_data = db[category].find_one(filter={"_id": object_id})
 
     return Article(**format_object_id(final_data))
+
+
+@api.put(
+    "/data/articles/{category}/{object_id}/auto",
+    tags=["Model"],
+    responses={
+        200: {"description": "OK", "model": Article},
+        404: {"description": "Article or category not found"},
+    },
+)
+def put_auto_anonymized_article(object_id: str, category: str):
+    """Generates the automatic anonymization of the specified article"""
+    object_id = bson.objectid.ObjectId(object_id)
+
+    if category not in CATEGORIES:
+        raise HTTPException(404, detail=f"Category '{category}' not found.")
+
+    old_article = db[category].find_one(
+        filter={"_id": object_id}, projection={"raw_text": 1, "events": 1, "_id": 0}
+    )
+
+    if not old_article:
+        raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
+
+    tags = get_entities(tagger=tagger, raw_sentence=old_article["raw_text"])
+    auto_anonymized_text = replace_text(
+        raw_sentence=old_article["raw_text"], entities=tags
+    )
+
+    new_data = {
+        **old_article,
+        "automatic_anonymized_text": auto_anonymized_text,
+        "auto_anonymized_text": tags,
+    }
+    new_data["events"] = old_article["events"] + [
+        {
+            "type": "auto_anonymization",
+            "date": datetime.datetime.utcnow(),
+            "author": "paul_dechorgnat",  # TODO: change that
+        }
+    ]
+
+    db[category].update_one(filter={"_id": object_id}, update={"$set": new_data})
+
+    result = db[category].find_one(filter={"_id": object_id})
+
+    return Article(**format_object_id(result))
