@@ -17,7 +17,6 @@ df.head()
 tokenizer = NLTKWordTokenizer()
 
 stop_words = set(stopwords.words("english"))
-print(len(stop_words))
 
 stop_words.update([",", ".", ":", "?", "!", ";", "-", "'s", "'"])
 

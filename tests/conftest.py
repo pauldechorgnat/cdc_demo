@@ -17,7 +17,7 @@ def fake_article_data():
         "headline": "fake headline",
         "source": "sport",
         "keywords": ["fake", "keywords"],
-        "raw_text": config.SENTENCE,
+        "raw_text": config.TEXT,
     }
 
     return data

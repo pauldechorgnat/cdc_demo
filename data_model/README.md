@@ -44,19 +44,19 @@ Un document classique devrait ressembler à:
             },
         "automatic_anonymization": {
             "date": datetime.datetime(2021, 12, 1, 14, 32, 33),
-            "author": "pseudo_model:0.0.1",
+            "author": "alias_model:0.0.1",
         },
         "manual_anonymization": {
             "date": datetime.datetime(2021, 12, 1, 14, 32, 33),
             "author": "12343534",
         }
     },
-    "auto_anonymized_tags": [
-        {"text": "Donald Trump", "tag": "PER_0"},
+    "auto_anonymized_aliases": [
+        {"text": "Donald Trump", "alias": "PER_0"},
         {}
     ],
-    "manual_anonymized_tags" : [
-        {"text": "Donald Trump", "tag": "PER_0"},
+    "manual_anonymized_aliases" : [
+        {"text": "Donald Trump", "alias": "PER_0"},
         {}
     ],
     "hash": 533794461304174741,
@@ -88,6 +88,6 @@ L'API doit donc avoir les points de terminaison suivants:
 - [x] `POST /data/articles`: permet l'insertion d'un article.
 - [x] `POST /data/articles/batch`: permet l'insertion massive d'articles (un seul fichier json).
 - [x] `PUT /data/articles/_id`: permet la modification d'un article.
-- [ ] `PUT /data/article/_id/auto`: déclenche la pseudonymisation automatique de l'article.
-- [ ] `PUT /data/article/_id/manual`: permet la pseudonymisation de l'article manuelle.
+- [ ] `PUT /data/article/_id/auto`: déclenche la aliasnymisation automatique de l'article.
+- [ ] `PUT /data/article/_id/manual`: permet la aliasnymisation de l'article manuelle.
 - [x] `DELETE /data/articles/_id`: permet la suppression d'un article.

@@ -9,7 +9,7 @@ Ce repo est un petit exercice qui consiste à créer un modèle d'anonymisation 
 - [x] Créer une API qui permet d'exposer le modèle
 - [x] Mettre une base de données MongoDB (dockerisée) pour exposer les données
 - [x] Créer un modèle de données cohérent (cf [ce fichier](/data_model/README.md))
-- [ ] Créer un fichier `docker-compose.yml` pour lancer le service
+- [x] Créer un fichier `docker-compose.yml` pour lancer le service
 - [ ] Créer les Github Actions de test + lint
 - [ ] Trouver un support de déploiement (Azure, AWS ?)
 - [ ] Créer les Github Actions de déploiement

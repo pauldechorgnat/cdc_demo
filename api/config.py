@@ -1,12 +1,12 @@
 import os
 
-ANONYMIZED_TAGS_DESCRIPTION = {
+ANONYMIZED_ALIASES_DESCRIPTION = {
     "LOC": "Location, place, town, country, ...",
     "PER": "Person",
     "ORG": "Organization, Company, ...",
 }
 
-ANONYMIZED_TAGS = list(ANONYMIZED_TAGS_DESCRIPTION.keys())
+ANONYMIZED_ALIASES = list(ANONYMIZED_ALIASES_DESCRIPTION.keys())
 
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
 # ENVIRONMENT should be one of dev, prod or docker-compose

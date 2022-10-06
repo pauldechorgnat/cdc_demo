@@ -5,69 +5,69 @@ from flair.models import SequenceTagger
 
 def get_entities(
     tagger: SequenceTagger,
-    raw_sentence: str,
-    tags_to_anonymize: list = ["LOC", "PER", "ORG"],
+    raw_text: str,
+    aliases_to_anonymize: list = ["LOC", "PER", "ORG"],
 ) -> dict:
     """Returns a dictionary of named entities with a unique ID
 
     Args:
         tagger (SequenceTagger): Flair SequenceTagger to perform NER
-        raw_sentence (str): Sentence to tag
-        tags_to_anonymize (list, optional): List of tags to keep.
+        raw_text (str): Sentence to alias
+        aliases_to_anonymize (list, optional): List of aliases to keep.
             Defaults to ["LOC", "PER", "ORG"].
 
     Returns:
-        dict: dictionary with unique entities as keys and unique tag as values
+        dict: dictionary with unique entities as keys and unique alias as values
     """
-    sentences = [Sentence(s) for s in nltk.sent_tokenize(raw_sentence)]
+    texts = [Sentence(s) for s in nltk.sent_tokenize(raw_text)]
 
-    tagger.predict(sentences)
+    tagger.predict(texts)
 
     entities = {}
 
-    for s in sentences:
+    for s in texts:
         for entity in s.get_spans("ner"):
             entities[entity.text] = entity.tag
 
-    tag_counter = {}
+    alias_counter = {}
 
-    for text, tag in entities.items():
-        if tag in tags_to_anonymize:
-            counter = tag_counter.get(tag, 0)
-            entities[text] = f"{tag}_{counter}"
-            tag_counter[tag] = counter + 1
+    for text, alias in entities.items():
+        if alias in aliases_to_anonymize:
+            counter = alias_counter.get(alias, 0)
+            entities[text] = f"{alias}_{counter}"
+            alias_counter[alias] = counter + 1
     return entities
 
 
-def replace_text(raw_sentence: str, entities: dict) -> str:
-    """Returns a string with named entities replaced with tag ids
+def replace_text(raw_text: str, entities: dict) -> str:
+    """Returns a string with named entities replaced with alias ids
     Args:
-        raw_sentence (str): string to anonymize
+        raw_text (str): string to anonymize
         entities (dict): dictionary with named entities as keys and unique ids
             as values
 
     Returns:
         str: an anonymized string
     """
-    new_sentence = raw_sentence
+    new_text = raw_text
 
-    for text, tag in entities.items():
-        new_sentence = new_sentence.replace(text, tag)
+    for text, alias in entities.items():
+        new_text = new_text.replace(text, alias)
 
-    return new_sentence
+    return new_text
 
 
-def anonymize_sentence(
+def anonymize_text(
     tagger: SequenceTagger,
-    raw_sentence: str,
-    tags_to_anonymize: list = ["LOC", "PER", "ORG"],
+    raw_text: str,
+    aliases_to_anonymize: list = ["LOC", "PER", "ORG"],
 ) -> str:
     """Returns an anonymized string
 
     Args:
         tagger (SequenceTagger): Flair SequenceTagger to perform NER
-        raw_sentence (str): Sentence to anonymize
-        tags_to_anonymize (list, optional): List of tags to anonymize.
+        raw_text (str): Sentence to anonymize
+        aliases_to_anonymize (list, optional): List of aliases to anonymize.
             Defaults to ["LOC", "PER", "ORG"].
 
     Returns:
@@ -75,8 +75,17 @@ def anonymize_sentence(
     """
 
     entities = get_entities(
-        tagger=tagger, raw_sentence=raw_sentence, tags_to_anonymize=tags_to_anonymize
+        tagger=tagger, raw_text=raw_text, aliases_to_anonymize=aliases_to_anonymize
     )
 
-    new_sentence = replace_text(raw_sentence=raw_sentence, entities=entities)
-    return new_sentence
+    new_text = replace_text(raw_text=raw_text, entities=entities)
+    return new_text
+
+
+def format_aliases(aliases: dict):
+    formatted_aliases = []
+    for text, alias in aliases.items():
+        formatted_aliases.append(
+            {"text": text, "alias": alias, "alias_type": alias.split("_")[0]}
+        )
+    return formatted_aliases

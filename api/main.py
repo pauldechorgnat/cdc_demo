@@ -10,10 +10,11 @@ from flair.models import SequenceTagger
 from pydantic import BaseModel
 from pymongo import MongoClient
 
-from .config import ANONYMIZED_TAGS
-from .config import ANONYMIZED_TAGS_DESCRIPTION
+from .config import ANONYMIZED_ALIASES
+from .config import ANONYMIZED_ALIASES_DESCRIPTION
 from .config import ENVIRONMENT
 from .config import MONGO_URL
+from .model import format_aliases
 from .model import get_entities
 from .model import replace_text
 from .utils import format_object_id
@@ -29,24 +30,25 @@ CATEGORIES = db.list_collection_names()
 logging.info("MongoDB connected")
 
 
-class Sentence(BaseModel):
-    sentence: str = "The UN is said to meet in New-York according to Donald Trump."
+class Text(BaseModel):
+    text: str = "The UN is said to meet in New-York according to Donald Trump."
 
 
-class Tag(BaseModel):
+class Alias(BaseModel):
     text: str = "Paul Déchorgnat"
-    tag: str = "PER_0"
+    alias: str = "PER_0"
+    alias_type: str = "PER"
 
 
-class TagDescription(BaseModel):
-    tag: str = "PER"
+class AliasDescription(BaseModel):
+    alias: str = "PER"
     description: str = "Person"
 
 
-class AnonymizedTextWithTags(BaseModel):
+class AnonymizedTextWithAliases(BaseModel):
     raw_text: str
     anonymized_text: str
-    tags: List[Tag]
+    aliases: List[Alias]
 
 
 class NewArticle(BaseModel):
@@ -83,8 +85,8 @@ class Article(NewArticle):
     automatic_anonymized_text: str = "..."
     anonymized_text: str = "..."
     events: List[Event]
-    auto_anonymized_tags: List[Tag] = []
-    manual_anonymized_tags: List[Tag] = []
+    auto_anonymized_aliases: List[Alias] = []
+    manual_anonymized_aliases: List[Alias] = []
 
 
 api = FastAPI(title="Anonymized text", version=VERSION)
@@ -103,61 +105,64 @@ def get_index():
 
 
 @api.get(
-    "/tags",
+    "/aliases",
     tags=["Default"],
-    responses={200: {"description": "OK", "model": List[TagDescription]}},
+    responses={200: {"description": "OK", "model": List[AliasDescription]}},
 )
-def get_tags():
-    """Returns the list of tags that are anonymized and their description"""
+def get_aliases():
+    """Returns the list of aliases that are anonymized and their description"""
     return [
-        TagDescription(text=k, tag=v) for k, v in ANONYMIZED_TAGS_DESCRIPTION.items()
+        AliasDescription(text=k, alias=v)
+        for k, v in ANONYMIZED_ALIASES_DESCRIPTION.items()
     ]
 
 
 @api.get(
-    "/tags/{tag}",
+    "/aliases/{alias}",
     tags=["Default"],
     responses={
-        200: {"description": "OK", "model": TagDescription},
+        200: {"description": "OK", "model": AliasDescription},
         404: {"description": "Not found"},
     },
 )
-def get_tag(tag: str):
-    if tag not in ANONYMIZED_TAGS_DESCRIPTION:
-        raise HTTPException(404, detail=f"Tag ID '{tag}' not found")
-    return TagDescription(tag=tag, description=ANONYMIZED_TAGS_DESCRIPTION[tag])
+def get_alias(alias: str):
+    if alias not in ANONYMIZED_ALIASES_DESCRIPTION:
+        raise HTTPException(404, detail=f"Alias ID '{alias}' not found")
+    return AliasDescription(
+        alias=alias, description=ANONYMIZED_ALIASES_DESCRIPTION[alias]
+    )
 
 
 @api.post(
-    "/model/tags",
+    "/model/aliases",
     tags=["Model"],
-    responses={200: {"description": "OK", "model": List[Tag]}},
+    responses={200: {"description": "OK", "model": List[Alias]}},
 )
-def post_get_named_entities(sentence: Sentence):
+def post_get_named_entities(text: Text):
     entities = get_entities(
-        tagger=tagger, raw_sentence=sentence.sentence, tags_to_anonymize=ANONYMIZED_TAGS
+        tagger=tagger, raw_text=text.text, aliases_to_anonymize=ANONYMIZED_ALIASES
     )
-    return [Tag(text=k, tag=v) for k, v in entities.items()]
+    return [Alias(text=k, alias=v) for k, v in entities.items()]
 
 
 @api.post(
     "/model/anonymize",
     tags=["Model"],
-    responses={200: {"description": "OK", "model": AnonymizedTextWithTags}},
+    responses={200: {"description": "OK", "model": AnonymizedTextWithAliases}},
 )
-def post_anonymize_sentence(sentence: Sentence):
-    raw_sentence = sentence.sentence
+def post_anonymize_text(text: Text):
+    raw_text = text.text
 
-    entities = get_entities(
-        tagger=tagger, raw_sentence=raw_sentence, tags_to_anonymize=ANONYMIZED_TAGS
+    aliases = get_entities(
+        tagger=tagger, raw_text=raw_text, aliases_to_anonymize=ANONYMIZED_ALIASES
     )
 
-    new_sentence = replace_text(raw_sentence=raw_sentence, entities=entities)
+    new_text = replace_text(raw_text=raw_text, entities=aliases)
 
-    response = AnonymizedTextWithTags(
-        raw_text=raw_sentence,
-        anonymized_text=new_sentence,
-        tags=[Tag(text=k, tag=v) for k, v in entities.items()],
+    response = AnonymizedTextWithAliases(
+        raw_text=raw_text,
+        anonymized_text=new_text,
+        aliases=[Alias(**a) for a in format_aliases(aliases)],
     )
     return response
 
@@ -365,15 +370,16 @@ def put_auto_anonymized_article(object_id: str, category: str):
     if not old_article:
         raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
 
-    tags = get_entities(tagger=tagger, raw_sentence=old_article["raw_text"])
+    aliases = get_entities(tagger=tagger, raw_text=old_article["raw_text"])
+
     auto_anonymized_text = replace_text(
-        raw_sentence=old_article["raw_text"], entities=tags
+        raw_text=old_article["raw_text"], entities=aliases
     )
 
     new_data = {
         **old_article,
         "automatic_anonymized_text": auto_anonymized_text,
-        "auto_anonymized_text": tags,
+        "auto_anonymized_aliases": format_aliases(aliases),
     }
     new_data["events"] = old_article["events"] + [
         {
