@@ -68,7 +68,7 @@ def test_auto_anonymize(article):
     my_article = article()
 
     my_article.pop("auto_anonymized_aliases")
-    my_article.pop("automatic_anonymized_text")
+    my_article.pop("auto_anonymized_text")
 
     object_id = my_article["object_id"]
 
@@ -80,7 +80,7 @@ def test_auto_anonymize(article):
 
     data = response.json()
 
-    auto_anonymized_text = data.pop("automatic_anonymized_text")
+    auto_anonymized_text = data.pop("auto_anonymized_text")
     auto_anonymized_aliases = data.pop("auto_anonymized_aliases")
     new_events = data.pop("events")
 
@@ -92,3 +92,38 @@ def test_auto_anonymize(article):
     assert len(new_events) == len(old_events) + 1
 
     assert auto_anonymized_aliases == config.FORMATTED_ALIASES
+
+
+def test_manual_anonymize(article):
+    category = "sport"
+    my_article = article()
+
+    my_article.pop("manual_anonymized_aliases")
+    my_article.pop("manual_anonymized_text")
+
+    object_id = my_article["object_id"]
+
+    response = requests.put(
+        url=f"{config.API_URL}/data/articles/{category}/{object_id}/manual",
+        json={
+            "manual_anonymized_aliases": config.FORMATTED_ALIASES,
+            "manual_anonymized_text": config.ANONYMIZED_TEXT,
+        },
+    )
+
+    assert response.status_code == 200, response.content
+
+    data = response.json()
+
+    manual_anonymized_text = data.pop("manual_anonymized_text")
+    manual_anonymized_aliases = data.pop("manual_anonymized_aliases")
+    new_events = data.pop("events")
+
+    old_events = my_article.pop("events")
+
+    assert data == my_article
+
+    assert manual_anonymized_text == config.ANONYMIZED_TEXT
+    assert len(new_events) == len(old_events) + 1
+
+    assert manual_anonymized_aliases == config.FORMATTED_ALIASES
