@@ -17,7 +17,7 @@ def fake_article_data():
         "headline": "fake headline",
         "source": "sport",
         "keywords": ["fake", "keywords"],
-        "raw_text": "The UN is said to meet in New-York according to Donald Trump.",
+        "raw_text": config.SENTENCE,
     }
 
     return data

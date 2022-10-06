@@ -61,3 +61,31 @@ def test_update_article(article):
 
     assert data == {**my_article, **new_data}
     assert len(old_events) == len(new_events) - 1
+
+
+def test_auto_anonymize(article):
+    category = "sport"
+    my_article = article()
+
+    object_id = my_article["object_id"]
+
+    response = requests.put(
+        url=f"{config.API_URL}/data/article/{category}/{object_id}/auto"
+    )
+
+    assert response.status_code == 200, response.content
+
+    data = response.json()
+
+    auto_anonymized_text = data.pop("auto_anonymized_text")
+    auto_anonymized_tags = data.pop("auto_anonymized_tags")
+    new_events = data.pop("events")
+
+    old_events = data.pop("events")
+
+    assert data == my_article
+
+    assert auto_anonymized_tags == config.ENTITIES
+    assert auto_anonymized_text == config.ANONYMIZED_SENTENCE
+
+    assert len(new_events) == len(old_events) + 1
