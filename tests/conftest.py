@@ -1,13 +1,8 @@
 import datetime
 
 import config
-import nltk
 import pytest
 import requests
-
-
-nltk.download("punkt")
-nltk.download("stopwords")
 
 
 @pytest.fixture
