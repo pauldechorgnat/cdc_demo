@@ -72,6 +72,11 @@ class UpdateArticleData(BaseModel):
     raw_text: str = None
 
 
+class ManualAnonymizedData(BaseModel):
+    manual_anonymized_aliases: List[Alias] = []
+    manual_anonymized_text: str = []
+
+
 class Event(BaseModel):
     type: str = "insertion"
     author: str = "paul_dechorgnat"
@@ -82,7 +87,8 @@ class Event(BaseModel):
 class Article(NewArticle):
     object_id: str = "633c6473b9daeb8a90169dcb"
     hash: int = 533794461304174741
-    automatic_anonymized_text: str = "..."
+    auto_anonymized_text: str = "..."
+    manual_anonymized_text: str = "..."
     anonymized_text: str = "..."
     events: List[Event]
     auto_anonymized_aliases: List[Alias] = []
@@ -378,12 +384,57 @@ def put_auto_anonymized_article(object_id: str, category: str):
 
     new_data = {
         **old_article,
-        "automatic_anonymized_text": auto_anonymized_text,
+        "auto_anonymized_text": auto_anonymized_text,
         "auto_anonymized_aliases": format_aliases(aliases),
     }
     new_data["events"] = old_article["events"] + [
         {
             "type": "auto_anonymization",
+            "date": datetime.datetime.utcnow(),
+            "author": "paul_dechorgnat",  # TODO: change that
+        }
+    ]
+
+    db[category].update_one(filter={"_id": object_id}, update={"$set": new_data})
+
+    result = db[category].find_one(filter={"_id": object_id})
+
+    return Article(**format_object_id(result))
+
+
+@api.put(
+    "/data/articles/{category}/{object_id}/manual",
+    tags=["Model"],
+    responses={
+        200: {"description": "OK", "model": Article},
+        404: {"description": "Article or category not found"},
+    },
+)
+def put_manual_anonymized_article(
+    object_id: str, category: str, anonymized_data: ManualAnonymizedData
+):
+    """Generates the automatic manual of the specified article"""
+    object_id = bson.objectid.ObjectId(object_id)
+
+    if category not in CATEGORIES:
+        raise HTTPException(404, detail=f"Category '{category}' not found.")
+
+    old_article = db[category].find_one(
+        filter={"_id": object_id}, projection={"events": 1, "_id": 0}
+    )
+
+    if not old_article:
+        raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
+
+    new_data = {
+        "manual_anonymized_text": anonymized_data.manual_anonymized_text,
+        "manual_anonymized_aliases": anonymized_data.dict()[
+            "manual_anonymized_aliases"
+        ],
+    }
+    new_data["events"] = old_article["events"] + [
+        {
+            "type": "manual_anonymization",
             "date": datetime.datetime.utcnow(),
             "author": "paul_dechorgnat",  # TODO: change that
         }
