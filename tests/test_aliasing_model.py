@@ -1,8 +1,8 @@
 from flair.models import SequenceTagger
 
-from api.model import anonymize_text
-from api.model import get_entities
-from api.model import replace_text
+from api.aliasing_model import anonymize_text
+from api.aliasing_model import get_entities
+from api.aliasing_model import replace_text
 
 
 tagger = SequenceTagger.load("ner")

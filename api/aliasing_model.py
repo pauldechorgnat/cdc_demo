@@ -80,12 +80,3 @@ def anonymize_text(
 
     new_text = replace_text(raw_text=raw_text, entities=entities)
     return new_text
-
-
-def format_aliases(aliases: dict):
-    formatted_aliases = []
-    for text, alias in aliases.items():
-        formatted_aliases.append(
-            {"text": text, "alias": alias, "alias_type": alias.split("_")[0]}
-        )
-    return formatted_aliases
