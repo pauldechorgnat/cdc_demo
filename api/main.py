@@ -1,8 +1,8 @@
 import datetime
-import logging
 from typing import List
 
 import bson
+from fastapi import Depends
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi import Query
@@ -11,6 +11,15 @@ from pymongo import MongoClient
 
 from .aliasing_model import get_entities
 from .aliasing_model import replace_text
+from .authentication import check_user
+from .authentication import check_valid_password
+from .authentication import decodeJWT
+from .authentication import JWTBearer
+from .authentication import signJWT
+from .authentication import User
+from .authentication import UserLogin
+from .config import ADMIN_DB
+from .config import ADMIN_USER_COLLECTION
 from .config import ANONYMIZED_ALIASES
 from .config import ANONYMIZED_ALIASES_DESCRIPTION
 from .config import ENVIRONMENT
@@ -26,15 +35,18 @@ from .models import UpdateArticleData
 from .utils import format_aliases
 from .utils import format_object_id
 
+# from .config import ADMIN_ROLE_COLLECTION
+
 tagger = SequenceTagger.load("ner")
 
 VERSION = "0.0.1"
 
 client = MongoClient(MONGO_URL)
-db = client["articles"]
+article_db = client["articles"]
+admin_db = client[ADMIN_DB]
 
-CATEGORIES = db.list_collection_names()
-logging.info("MongoDB connected")
+
+CATEGORIES = article_db.list_collection_names()
 
 
 api = FastAPI(title="Anonymized text", version=VERSION)
@@ -42,7 +54,11 @@ api = FastAPI(title="Anonymized text", version=VERSION)
 default_responses = {200: {"description": "OK"}}
 
 
-@api.get("/", tags=["Default"], responses=default_responses)
+@api.get(
+    "/",
+    tags=["Default"],
+    responses=default_responses,
+)
 def get_index():
     """Returns a general message"""
     return {
@@ -52,9 +68,65 @@ def get_index():
     }
 
 
+async def get_current_user(token: str = Depends(JWTBearer())):
+    username = decodeJWT(token)["user_id"]
+    user_data = admin_db[ADMIN_USER_COLLECTION].find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+
+    if user_data:
+        return User(**user_data)
+    raise HTTPException(401, detail="Invalid Token.")
+
+
+@api.get("/users/me", tags=["Users"])
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@api.post(
+    "/users/signup",
+    tags=["Users"],
+    responses={
+        200: {"description": "OK"},
+        409: {"decription": "Username already taken."},
+        401: {"description": "Password is not valid."},
+    },
+)
+def create_user(user: UserLogin):
+    new_user = user.dict()
+    new_user["roles"] = ["public"]
+
+    previous_user = admin_db[ADMIN_USER_COLLECTION].find_one(
+        filter={"username": user.username}
+    )
+    if previous_user:
+        raise HTTPException(409, detail=f"Username '{user.username}' already taken.")
+    if not check_valid_password(user.password):
+        raise HTTPException(401, detail="Password is not valid.")
+
+    admin_db[ADMIN_USER_COLLECTION].insert_one(new_user)
+
+    return signJWT(user.username)
+
+
+@api.post(
+    "/users/signin",
+    tags=["Users"],
+    responses={
+        200: {"description": "OK"},
+        401: {"description": "Username or credentials are not valid."},
+    },
+)
+def user_login(user: UserLogin):
+    if check_user(user, collection=admin_db[ADMIN_USER_COLLECTION]):
+        return signJWT(user.username)
+    raise HTTPException(401, detail="Username or credentials are not valid.")
+
+
 @api.get(
     "/aliases",
-    tags=["Default"],
+    tags=["Model"],
     responses={200: {"description": "OK", "model": List[AliasDescription]}},
 )
 def get_aliases():
@@ -67,7 +139,7 @@ def get_aliases():
 
 @api.get(
     "/aliases/{alias}",
-    tags=["Default"],
+    tags=["Model"],
     responses={
         200: {"description": "OK", "model": AliasDescription},
         404: {"description": "Not found"},
@@ -125,6 +197,7 @@ def get_articles(
     date_start: datetime.datetime = Query(default=None),
     date_end: datetime.datetime = Query(default=None),
     sections: List[str] = Query(default=None),
+    current_user: User = Depends(get_current_user),
 ):
 
     collections = category if category else CATEGORIES
@@ -146,7 +219,7 @@ def get_articles(
 
     results = []
     for c in collections:
-        results.extend(map(format_object_id, db[c].find(filter=mongo_filter)))
+        results.extend(map(format_object_id, article_db[c].find(filter=mongo_filter)))
 
     results = [Article(**r) for r in results]
 
@@ -161,11 +234,15 @@ def get_articles(
         404: {"description": "Article or category not found"},
     },
 )
-def get_article(category: str, object_id: str):
+def get_article(
+    category: str, object_id: str, current_user: User = Depends(get_current_user)
+):
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
     try:
-        result = db[category].find_one({"_id": bson.objectid.ObjectId(object_id)})
+        result = article_db[category].find_one(
+            {"_id": bson.objectid.ObjectId(object_id)}
+        )
     except bson.errors.InvalidId:
         raise HTTPException(422, detail=f"Id '{object_id}' is not valid.")
 
@@ -179,7 +256,9 @@ def get_article(category: str, object_id: str):
     tags=["Data"],
     responses={200: {"description": "OK", "model": Article}},
 )
-def post_new_article(article: NewArticle):
+def post_new_article(
+    article: NewArticle, current_user: User = Depends(get_current_user)
+):
     category = article.source
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' does not exist.")
@@ -194,8 +273,8 @@ def post_new_article(article: NewArticle):
             "mode": "single",
         }
     ]
-    result = db[category].insert_one(article_data)
-    new_article = db[category].find_one(result.inserted_id)
+    result = article_db[category].insert_one(article_data)
+    new_article = article_db[category].find_one(result.inserted_id)
 
     return Article(**format_object_id(new_article))
 
@@ -205,7 +284,9 @@ def post_new_article(article: NewArticle):
     tags=["Data"],
     responses={200: {"description": "OK", "model": List[Article]}},
 )
-def post_new_articles_batch(articles_data: List[NewArticle]):
+def post_new_articles_batch(
+    articles_data: List[NewArticle], current_user: User = Depends(get_current_user)
+):
     articles = {}
     insertion_date = datetime.datetime.utcnow()
     for article in articles_data:
@@ -228,9 +309,9 @@ def post_new_articles_batch(articles_data: List[NewArticle]):
     new_articles = []
 
     for c in articles:
-        r = db[c].insert_many(articles[c])
+        r = article_db[c].insert_many(articles[c])
         inserted_ids = r.inserted_ids
-        new_articles.extend(db[c].find({"_id": {"$in": inserted_ids}}))
+        new_articles.extend(article_db[c].find({"_id": {"$in": inserted_ids}}))
 
     return [Article(**format_object_id(a)) for a in new_articles]
 
@@ -243,10 +324,14 @@ def post_new_articles_batch(articles_data: List[NewArticle]):
         404: {"description": "Article or category not found"},
     },
 )
-def delete_article(category: str, object_id: str):
+def delete_article(
+    category: str, object_id: str, current_user: User = Depends(get_current_user)
+):
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
-    result = db[category].delete_one(filter={"_id": bson.objectid.ObjectId(object_id)})
+    result = article_db[category].delete_one(
+        filter={"_id": bson.objectid.ObjectId(object_id)}
+    )
     if result.deleted_count == 0:
         raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
     return {"message": "object deleted"}
@@ -260,14 +345,19 @@ def delete_article(category: str, object_id: str):
         404: {"description": "Article or category not found"},
     },
 )
-def update_article_data(category: str, object_id: str, new_article: UpdateArticleData):
+def update_article_data(
+    category: str,
+    object_id: str,
+    new_article: UpdateArticleData,
+    current_user: User = Depends(get_current_user),
+):
 
     object_id = bson.objectid.ObjectId(object_id)
 
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
 
-    old_article_events = db[category].find_one(
+    old_article_events = article_db[category].find_one(
         filter={"_id": object_id}, projection={"events": 1, "_id": 0}
     )
 
@@ -287,31 +377,33 @@ def update_article_data(category: str, object_id: str, new_article: UpdateArticl
 
     pprint(new_article_data)
 
-    db[category].update_one(
+    article_db[category].update_one(
         filter={"_id": object_id}, update={"$set": new_article_data}
     )
 
-    final_data = db[category].find_one(filter={"_id": object_id})
+    final_data = article_db[category].find_one(filter={"_id": object_id})
 
     return Article(**format_object_id(final_data))
 
 
 @api.put(
     "/data/articles/{category}/{object_id}/auto",
-    tags=["Model"],
+    tags=["Data"],
     responses={
         200: {"description": "OK", "model": Article},
         404: {"description": "Article or category not found"},
     },
 )
-def put_auto_anonymized_article(object_id: str, category: str):
+def put_auto_anonymized_article(
+    object_id: str, category: str, current_user: User = Depends(get_current_user)
+):
     """Generates the automatic anonymization of the specified article"""
     object_id = bson.objectid.ObjectId(object_id)
 
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
 
-    old_article = db[category].find_one(
+    old_article = article_db[category].find_one(
         filter={"_id": object_id}, projection={"raw_text": 1, "events": 1, "_id": 0}
     )
 
@@ -337,23 +429,28 @@ def put_auto_anonymized_article(object_id: str, category: str):
         }
     ]
 
-    db[category].update_one(filter={"_id": object_id}, update={"$set": new_data})
+    article_db[category].update_one(
+        filter={"_id": object_id}, update={"$set": new_data}
+    )
 
-    result = db[category].find_one(filter={"_id": object_id})
+    result = article_db[category].find_one(filter={"_id": object_id})
 
     return Article(**format_object_id(result))
 
 
 @api.put(
     "/data/articles/{category}/{object_id}/manual",
-    tags=["Model"],
+    tags=["Data"],
     responses={
         200: {"description": "OK", "model": Article},
         404: {"description": "Article or category not found"},
     },
 )
 def put_manual_anonymized_article(
-    object_id: str, category: str, anonymized_data: ManualAnonymizedData
+    object_id: str,
+    category: str,
+    anonymized_data: ManualAnonymizedData,
+    current_user: User = Depends(get_current_user),
 ):
     """Generates the automatic manual of the specified article"""
     object_id = bson.objectid.ObjectId(object_id)
@@ -361,7 +458,7 @@ def put_manual_anonymized_article(
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
 
-    old_article = db[category].find_one(
+    old_article = article_db[category].find_one(
         filter={"_id": object_id}, projection={"events": 1, "_id": 0}
     )
 
@@ -382,8 +479,10 @@ def put_manual_anonymized_article(
         }
     ]
 
-    db[category].update_one(filter={"_id": object_id}, update={"$set": new_data})
+    article_db[category].update_one(
+        filter={"_id": object_id}, update={"$set": new_data}
+    )
 
-    result = db[category].find_one(filter={"_id": object_id})
+    result = article_db[category].find_one(filter={"_id": object_id})
 
     return Article(**format_object_id(result))

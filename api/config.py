@@ -15,3 +15,8 @@ MONGO_URL = "mongodb://localhost:27017"
 
 if ENVIRONMENT == "docker-compose":
     MONGO_URL = "mongodb://my_mongo:27017"
+
+
+ADMIN_DB = "api_administration"
+ADMIN_USER_COLLECTION = "users"
+ADMIN_ROLE_COLLECTION = "roles"

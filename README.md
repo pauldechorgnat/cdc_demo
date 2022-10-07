@@ -10,7 +10,7 @@ Ce repo est un petit exercice qui consiste à créer un modèle d'anonymisation 
 - [x] Mettre une base de données MongoDB (dockerisée) pour exposer les données
 - [x] Créer un modèle de données cohérent (cf [ce fichier](/data_model/README.md))
 - [x] Créer un fichier `docker-compose.yml` pour lancer le service
-- [ ] Créer les Github Actions de test + lint
+- [x] Créer les Github Actions de test + lint
 - [ ] Trouver un support de déploiement (Azure, AWS ?)
 - [ ] Créer les Github Actions de déploiement
 - [ ] Gérer la sécurité de l'application
@@ -119,4 +119,46 @@ J'ai aussi créé un [fichier](docker-compose/docker-compose.yaml) `docker-compo
 
 ```sh
  docker-compose -f ./docker-compose/docker-compose.yaml up
+```
+
+## Sécurité de l'API
+
+### Authentification
+
+Une authentification via des JWT pourrait être intéressante: assez [facile](https://testdriven.io/blog/fastapi-jwt-auth/) à mettre en place et on pourrait ensuite stocker les identifiants dans une collection MongoDB (on tâchera d'encoder les mots de passe... On n'est pas chez Facebook ici).
+
+### Autorisation
+
+Concernant les autorisations à donner aux différents utilisateurs, on va essayer de définir des groupes de droits et ensuite définir les différentes autorisation.
+
+Les utilisateurs de l'API que je vois sont:
+
+1. Le public qui doit avoir accès aux données anonymisées automatiquement puis à la main mais pas aux autres méthodes. On pourra donc simplement cacher les données lors de la création du résultat dans le point de terminaison.
+2. Les correcteurs qui doivent avoir accès au endpoint de mise à jour manuelle.
+3. Les contributeurs qui peuvent ajouter des données
+4. L'admin qui peut tout faire (et gérer les utilisateurs?)
+
+### Modèle de données
+
+On veut donc une collection contenant les utilisateurs:
+
+```json
+{
+    "username": "paul_dechorgnat",
+    "encrypted_password": "***",
+    "roles": ["contributor", "admin", "corrector", "public"]
+}
+```
+
+Et une base contenant les règles:
+
+```json
+{
+    "role": "contributor",
+    "authorized": [
+        "",
+        "",
+        ""
+    ]
+}
 ```
