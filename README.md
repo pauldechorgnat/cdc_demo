@@ -13,7 +13,7 @@ Ce repo est un petit exercice qui consiste à créer un modèle d'anonymisation 
 - [x] Créer les Github Actions de test + lint
 - [ ] Trouver un support de déploiement (Azure, AWS ?)
 - [ ] Créer les Github Actions de déploiement
-- [ ] Gérer la sécurité de l'application
+- [x] Gérer la sécurité de l'application
 - [ ] Gérer les environnements de dev et de prod
 
 ## Source de données

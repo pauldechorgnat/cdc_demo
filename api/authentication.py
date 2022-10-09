@@ -1,4 +1,5 @@
 import time
+from enum import auto
 from typing import Dict
 from typing import List
 
@@ -7,17 +8,18 @@ from fastapi import HTTPException
 from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.security import HTTPBearer
+from fastapi_utils.enums import StrEnum
 from pydantic import BaseModel
 from pymongo.collection import Collection
 
-JWT_SECRET = "my_secret"  # TODO: change
-JWT_ALGORITHM = "HS256"
+from .config import JWT_ALGORITHM
+from .config import JWT_SECRET
 
 # TODO: complexify the three following functions
 
 
 def check_valid_password(password):
-    return len(password) > 0
+    return len(password) > 6
 
 
 def encrypt_password(raw_password):
@@ -32,9 +34,11 @@ def token_response(token: str):
     return {"access_token": token}
 
 
-def signJWT(user_id: str) -> Dict[str, str]:
+def signJWT(
+    user_id: str, secret: str = JWT_SECRET, algorithm: str = JWT_ALGORITHM
+) -> Dict[str, str]:
     payload = {"user_id": user_id, "expires": time.time() + 60 * 60}  # 1 hour
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, secret, algorithm=algorithm)
 
     return token_response(token)
 
@@ -47,10 +51,17 @@ def decodeJWT(token: str) -> dict:
         return {}
 
 
+class RoleName(StrEnum):
+    public = auto()
+    contributor = auto()
+    corrector = auto()
+    admin = auto()
+
+
 class User(BaseModel):
     username: str = "paul_dechorgnat"
     password: str = "***"
-    roles: List[str] = ["public"]
+    roles: List[RoleName] = ["public"]
 
 
 class UserLogin(BaseModel):
@@ -65,6 +76,11 @@ def check_user(user: UserLogin, collection: Collection):
     if not user_data:
         return False
     return True
+
+
+class UserData(BaseModel):
+    password: str = None
+    roles: List[RoleName] = None
 
 
 class JWTBearer(HTTPBearer):
@@ -98,3 +114,31 @@ class JWTBearer(HTTPBearer):
         if payload:
             isTokenValid = True
         return isTokenValid
+
+
+def check_permissions(
+    username: str,
+    route_name: str,
+    user_collection: Collection,
+    role_collection: Collection,
+) -> bool:
+
+    user_data = user_collection.find_one(filter={"username": username})
+
+    roles = user_data["roles"]
+
+    command = [
+        {"$match": {"role": {"$in": roles}}},
+        {"$project": {"permissions": "$permissions"}},
+        {"$unwind": "$permissions"},
+        {
+            "$group": {
+                "_id": "permissions",
+                "permissions": {"$addToSet": "$permissions"},
+            }
+        },
+    ]
+
+    results = list(role_collection.aggregate(command))[0]["permissions"]
+
+    return route_name in results

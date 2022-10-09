@@ -1,4 +1,5 @@
 import datetime
+import warnings
 from typing import List
 
 import bson
@@ -11,17 +12,22 @@ from pymongo import MongoClient
 
 from .aliasing_model import get_entities
 from .aliasing_model import replace_text
+from .authentication import check_permissions
 from .authentication import check_user
 from .authentication import check_valid_password
 from .authentication import decodeJWT
+from .authentication import encrypt_password
 from .authentication import JWTBearer
 from .authentication import signJWT
 from .authentication import User
+from .authentication import UserData
 from .authentication import UserLogin
 from .config import ADMIN_DB
+from .config import ADMIN_ROLE_COLLECTION
 from .config import ADMIN_USER_COLLECTION
 from .config import ANONYMIZED_ALIASES
 from .config import ANONYMIZED_ALIASES_DESCRIPTION
+from .config import CATEGORIES
 from .config import ENVIRONMENT
 from .config import MONGO_URL
 from .models import Alias
@@ -35,6 +41,8 @@ from .models import UpdateArticleData
 from .utils import format_aliases
 from .utils import format_object_id
 
+warnings.filterwarnings(action="ignore")
+
 # from .config import ADMIN_ROLE_COLLECTION
 
 tagger = SequenceTagger.load("ner")
@@ -45,13 +53,35 @@ client = MongoClient(MONGO_URL)
 article_db = client["articles"]
 admin_db = client[ADMIN_DB]
 
-
-CATEGORIES = article_db.list_collection_names()
+role_collection = admin_db[ADMIN_ROLE_COLLECTION]
+user_collection = admin_db[ADMIN_USER_COLLECTION]
 
 
 api = FastAPI(title="Anonymized text", version=VERSION)
 
 default_responses = {200: {"description": "OK"}}
+
+
+async def get_current_user(token: str = Depends(JWTBearer())):
+    username = decodeJWT(token)["user_id"]
+    user_data = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+
+    if user_data:
+        return User(**user_data)
+    raise HTTPException(401, detail="Invalid Token.")
+
+
+def check_user_permissions(username, route_name):
+    permission = check_permissions(
+        username=username,
+        route_name=route_name,
+        user_collection=user_collection,
+        role_collection=role_collection,
+    )
+    if not permission:
+        raise HTTPException(403, detail="User is not allowed to perform this action.")
 
 
 @api.get(
@@ -66,17 +96,6 @@ def get_index():
         "version": VERSION,
         "environment": ENVIRONMENT,
     }
-
-
-async def get_current_user(token: str = Depends(JWTBearer())):
-    username = decodeJWT(token)["user_id"]
-    user_data = admin_db[ADMIN_USER_COLLECTION].find_one(
-        filter={"username": username}, projection={"password": 0}
-    )
-
-    if user_data:
-        return User(**user_data)
-    raise HTTPException(401, detail="Invalid Token.")
 
 
 @api.get("/users/me", tags=["Users"])
@@ -97,15 +116,15 @@ def create_user(user: UserLogin):
     new_user = user.dict()
     new_user["roles"] = ["public"]
 
-    previous_user = admin_db[ADMIN_USER_COLLECTION].find_one(
-        filter={"username": user.username}
-    )
+    previous_user = user_collection.find_one(filter={"username": user.username})
     if previous_user:
         raise HTTPException(409, detail=f"Username '{user.username}' already taken.")
     if not check_valid_password(user.password):
         raise HTTPException(401, detail="Password is not valid.")
 
-    admin_db[ADMIN_USER_COLLECTION].insert_one(new_user)
+    new_user["password"] = encrypt_password(new_user["password"])
+
+    user_collection.insert_one(new_user)
 
     return signJWT(user.username)
 
@@ -119,7 +138,7 @@ def create_user(user: UserLogin):
     },
 )
 def user_login(user: UserLogin):
-    if check_user(user, collection=admin_db[ADMIN_USER_COLLECTION]):
+    if check_user(user, collection=user_collection):
         return signJWT(user.username)
     raise HTTPException(401, detail="Username or credentials are not valid.")
 
@@ -199,7 +218,8 @@ def get_articles(
     sections: List[str] = Query(default=None),
     current_user: User = Depends(get_current_user),
 ):
-
+    ROUTE_NAME = "articles.read.multiple"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     collections = category if category else CATEGORIES
 
     mongo_filter = {}
@@ -237,6 +257,8 @@ def get_articles(
 def get_article(
     category: str, object_id: str, current_user: User = Depends(get_current_user)
 ):
+    ROUTE_NAME = "articles.read"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
     try:
@@ -259,6 +281,8 @@ def get_article(
 def post_new_article(
     article: NewArticle, current_user: User = Depends(get_current_user)
 ):
+    ROUTE_NAME = "articles.create"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     category = article.source
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' does not exist.")
@@ -268,7 +292,7 @@ def post_new_article(
     article_data["events"] = [
         {
             "type": "insertion",
-            "author": "paul_dechorgnat",  # TODO: change this
+            "author": current_user.username,
             "date": insertion_date,
             "mode": "single",
         }
@@ -287,6 +311,8 @@ def post_new_article(
 def post_new_articles_batch(
     articles_data: List[NewArticle], current_user: User = Depends(get_current_user)
 ):
+    ROUTE_NAME = "articles.create.multiple"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     articles = {}
     insertion_date = datetime.datetime.utcnow()
     for article in articles_data:
@@ -299,7 +325,7 @@ def post_new_articles_batch(
         article_data["events"] = [
             {
                 "type": "insertion",
-                "author": "paul_dechorgnat",  # TODO: change this
+                "author": current_user.username,
                 "date": insertion_date,
                 "mode": "batch",
             }
@@ -327,6 +353,8 @@ def post_new_articles_batch(
 def delete_article(
     category: str, object_id: str, current_user: User = Depends(get_current_user)
 ):
+    ROUTE_NAME = "articles.delete"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
     result = article_db[category].delete_one(
@@ -351,6 +379,8 @@ def update_article_data(
     new_article: UpdateArticleData,
     current_user: User = Depends(get_current_user),
 ):
+    ROUTE_NAME = "articles.update"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
 
     object_id = bson.objectid.ObjectId(object_id)
 
@@ -368,14 +398,10 @@ def update_article_data(
     new_article_data["events"] += [
         {
             "type": "modification",
-            "author": "paul_dechorgnat",  # TODO: change that
+            "author": current_user.username,
             "date": datetime.datetime.utcnow(),
         }
     ]
-
-    from pprint import pprint
-
-    pprint(new_article_data)
 
     article_db[category].update_one(
         filter={"_id": object_id}, update={"$set": new_article_data}
@@ -398,6 +424,9 @@ def put_auto_anonymized_article(
     object_id: str, category: str, current_user: User = Depends(get_current_user)
 ):
     """Generates the automatic anonymization of the specified article"""
+    ROUTE_NAME = "articles.auto_alias"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
     object_id = bson.objectid.ObjectId(object_id)
 
     if category not in CATEGORIES:
@@ -425,7 +454,7 @@ def put_auto_anonymized_article(
         {
             "type": "auto_anonymization",
             "date": datetime.datetime.utcnow(),
-            "author": "paul_dechorgnat",  # TODO: change that
+            "author": current_user.username,
         }
     ]
 
@@ -453,6 +482,9 @@ def put_manual_anonymized_article(
     current_user: User = Depends(get_current_user),
 ):
     """Generates the automatic manual of the specified article"""
+    ROUTE_NAME = "articles.manual_alias"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
     object_id = bson.objectid.ObjectId(object_id)
 
     if category not in CATEGORIES:
@@ -475,7 +507,7 @@ def put_manual_anonymized_article(
         {
             "type": "manual_anonymization",
             "date": datetime.datetime.utcnow(),
-            "author": "paul_dechorgnat",  # TODO: change that
+            "author": current_user.username,
         }
     ]
 
@@ -486,3 +518,132 @@ def put_manual_anonymized_article(
     result = article_db[category].find_one(filter={"_id": object_id})
 
     return Article(**format_object_id(result))
+
+
+@api.get(
+    "/users",
+    tags=["User Administration"],
+    responses={200: {"description": "OK", "model": List[User]}},
+)
+def get_users(current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.read.multiple"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    return [
+        User(**a) for a in user_collection.find(filter={}, projection={"password": 0})
+    ]
+
+
+@api.get(
+    "/users/{username}",
+    tags=["User Administration"],
+    responses={
+        200: {"description": "OK", "model": User},
+        404: {"description": "User not found."},
+    },
+)
+def get_user(username: str, current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.read"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+    if not user:
+        raise HTTPException(404, detail=f"User '{username} not found.")
+
+    return User(**user)
+
+
+@api.delete(
+    "/users/{username}",
+    tags=["User Administration"],
+    responses={200: {"description": "OK"}, 404: {"description": "User not found."}},
+)
+def delete_user(username: str, current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.delete"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+    if not user:
+        raise HTTPException(404, detail=f"User '{username} not found.")
+    user_collection.delete_one(filter={"username": username})
+
+    return {"message": "object deleted"}
+
+
+@api.post(
+    "/users",
+    tags=["User Administration"],
+    responses={
+        200: {"description": "OK", "model": User},
+        409: {"description": "Username already taken."},
+        401: {"description": "Password is not valid."},
+    },
+)
+def post_user(user_data: User, current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.create"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    previous_user = user_collection.find_one(filter={"username": user_data.username})
+    if previous_user:
+        raise HTTPException(
+            409, detail=f"Username '{user_data.username}' already taken."
+        )
+    if not check_valid_password(user_data.password):
+        raise HTTPException(401, detail="Password is not valid.")
+
+    data_dict = user_data.dict()
+    data_dict["password"] = encrypt_password(data_dict["password"])
+
+    user_collection.insert_one(data_dict)
+
+    new_user = user_collection.find_one(
+        filter={"username": user_data.username}, projection={"password": 0}
+    )
+
+    return User(**new_user)
+
+
+@api.put(
+    "/users/{username}",
+    tags=["User Administration"],
+    responses={
+        200: {"description": "OK", "model": User},
+        404: {"description": "User not found."},
+    },
+)
+def update_user(
+    username: str,
+    new_user_data: UserData,
+    current_user: User = Depends(get_current_user),
+):
+    ROUTE_NAME = "users.update"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+    if not user:
+        raise HTTPException(404, detail=f"User '{username} not found.")
+
+    new_password = new_user_data.password
+    new_user_data_dict = new_user_data.dict(exclude_unset=True)
+
+    if new_password:
+        if not check_valid_password(new_password):
+            raise HTTPException(401, detail="Password is not valid.")
+
+        new_user_data_dict["password"] = encrypt_password(new_password)
+
+    user_collection.update_one(
+        filter={"username": username}, update={"$set": new_user_data_dict}
+    )
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+
+    return User(**user)

@@ -20,3 +20,9 @@ if ENVIRONMENT == "docker-compose":
 ADMIN_DB = "api_administration"
 ADMIN_USER_COLLECTION = "users"
 ADMIN_ROLE_COLLECTION = "roles"
+ARTICLE_DB = "articles"
+
+JWT_SECRET = "my_secret"  # TODO: change
+JWT_ALGORITHM = "HS256"
+
+CATEGORIES = ["news", "business", "health", "entertainment", "sport", "politics"]

@@ -48,7 +48,7 @@ class UpdateArticleData(BaseModel):
 
 class ManualAnonymizedData(BaseModel):
     manual_anonymized_aliases: List[Alias] = []
-    manual_anonymized_text: str = []
+    manual_anonymized_text: str = ""
 
 
 class Event(BaseModel):

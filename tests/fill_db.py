@@ -1,10 +1,14 @@
 import datetime
+import json
 
 import pandas as pd
 from nltk.corpus import stopwords
 from nltk.tokenize import NLTKWordTokenizer
 from pymongo import MongoClient
 from tqdm import tqdm
+
+from api.config import ADMIN_DB
+from api.config import ADMIN_ROLE_COLLECTION
 
 
 client = MongoClient()
@@ -72,3 +76,12 @@ for r in tqdm(records):
         db[category].insert_one(r)
 
     category_counter[category] = category_counter.get(category, 0) + 1
+
+
+role_collection = client[ADMIN_DB][ADMIN_ROLE_COLLECTION]
+role_collection.delete_many({})
+
+with open("api/roles.json", "r") as file:
+    roles = json.load(file)
+
+role_collection.insert_many(roles)
