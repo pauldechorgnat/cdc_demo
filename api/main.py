@@ -1,89 +1,60 @@
 import datetime
+import warnings
 from typing import List
 
 import bson
+from fastapi import Depends
 from fastapi import FastAPI
 from fastapi import HTTPException
-from fastapi import Path
 from fastapi import Query
 from flair.models import SequenceTagger
-from pydantic import BaseModel
 from pymongo import MongoClient
 
-from .config import ANONYMIZED_TAGS
-from .config import ANONYMIZED_TAGS_DESCRIPTION
-from .model import anonymize_sentence
-from .model import get_entities
-from .model import replace_text
+from .aliasing_model import get_entities
+from .aliasing_model import replace_text
+from .authentication import check_permissions
+from .authentication import check_user
+from .authentication import check_valid_password
+from .authentication import decodeJWT
+from .authentication import encrypt_password
+from .authentication import JWTBearer
+from .authentication import signJWT
+from .authentication import User
+from .authentication import UserData
+from .authentication import UserLogin
+from .config import ADMIN_DB
+from .config import ADMIN_ROLE_COLLECTION
+from .config import ADMIN_USER_COLLECTION
+from .config import ANONYMIZED_ALIASES
+from .config import ANONYMIZED_ALIASES_DESCRIPTION
+from .config import CATEGORIES
+from .config import ENVIRONMENT
+from .config import MONGO_URL
+from .models import Alias
+from .models import AliasDescription
+from .models import AnonymizedTextWithAliases
+from .models import Article
+from .models import ManualAnonymizedData
+from .models import NewArticle
+from .models import Text
+from .models import UpdateArticleData
+from .utils import format_aliases
 from .utils import format_object_id
+
+warnings.filterwarnings(action="ignore")
+
+# from .config import ADMIN_ROLE_COLLECTION
 
 tagger = SequenceTagger.load("ner")
 
-
-class Sentence(BaseModel):
-    sentence: str = "The UN is said to meet in New-York according to Donald Trump."
-
-
-class Tag(BaseModel):
-    text: str = "Paul Déchorgnat"
-    tag: str = "PER_0"
-
-
-class TagDescription(BaseModel):
-    tag: str = "PER"
-    description: str = "Person"
-
-
-class AnonymizedTextWithTags(BaseModel):
-    raw_text: str
-    anonymized_text: str
-    tags: List[Tag]
-
-
-class NewArticle(BaseModel):
-    author: str = "Analysis by Stephen Collinson, CNN"
-    date_published: datetime.datetime = datetime.datetime(2021, 12, 1, 14, 32, 33)
-    section: str = "golf"
-    url: str = "https://www.cnn.com/2021/12/01/golf/tiger-woods-end-of-era-meanwhile-spt-intl/index.html"
-    headline: str = "Tiger Woods: Is this the end of his era? - CNN"
-    keywords: List[str] = ["golf", "tiger", "woods", "end", "era", "cnn"]
-    raw_text: str = "..."
-    source: str = "sport"
-
-
-class UpdateArticleData(BaseModel):
-    author: str = None
-    date_published: datetime.datetime = None
-    section: str = None
-    url: str = None
-    headline: str = None
-    keywords: List[str] = None
-    raw_text: str = None
-
-
-class Event(BaseModel):
-    type: str = "insertion"
-    author: str = "paul_dechorgnat"
-    date: datetime.datetime = datetime.datetime(2021, 12, 1, 14, 32, 33)
-    mode: str = None
-
-
-class Article(NewArticle):
-    object_id: str = "633c6473b9daeb8a90169dcb"
-    hash: int = 533794461304174741
-    automatic_anonymized_text: str = "..."
-    anonymized_text: str = "..."
-    events: List[Event]
-    auto_anonymized_tags: List[Tag] = []
-    manual_anonymized_tags: List[Tag] = []
-
-
 VERSION = "0.0.1"
 
-client = MongoClient()
-db = client["articles"]
+client = MongoClient(MONGO_URL)
+article_db = client["articles"]
+admin_db = client[ADMIN_DB]
 
-CATEGORIES = db.list_collection_names()
+role_collection = admin_db[ADMIN_ROLE_COLLECTION]
+user_collection = admin_db[ADMIN_USER_COLLECTION]
 
 
 api = FastAPI(title="Anonymized text", version=VERSION)
@@ -91,68 +62,146 @@ api = FastAPI(title="Anonymized text", version=VERSION)
 default_responses = {200: {"description": "OK"}}
 
 
-@api.get("/", tags=["Default"], responses=default_responses)
-def get_index():
-    """Returns a general message"""
-    return {"message": "Documentation is at /docs", "version": VERSION}
+async def get_current_user(token: str = Depends(JWTBearer())):
+    username = decodeJWT(token)["user_id"]
+    user_data = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+
+    if user_data:
+        return User(**user_data)
+    raise HTTPException(401, detail="Invalid Token.")
+
+
+def check_user_permissions(username, route_name):
+    permission = check_permissions(
+        username=username,
+        route_name=route_name,
+        user_collection=user_collection,
+        role_collection=role_collection,
+    )
+    if not permission:
+        raise HTTPException(403, detail="User is not allowed to perform this action.")
 
 
 @api.get(
-    "/tags",
+    "/",
     tags=["Default"],
-    responses={200: {"description": "OK", "model": List[TagDescription]}},
+    responses=default_responses,
 )
-def get_tags():
-    """Returns the list of tags that are anonymized and their description"""
+def get_index():
+    """Returns a general message"""
+    return {
+        "message": "Documentation is at /docs",
+        "version": VERSION,
+        "environment": ENVIRONMENT,
+    }
+
+
+@api.get("/users/me", tags=["Users"])
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@api.post(
+    "/users/signup",
+    tags=["Users"],
+    responses={
+        200: {"description": "OK"},
+        409: {"decription": "Username already taken."},
+        401: {"description": "Password is not valid."},
+    },
+)
+def create_user(user: UserLogin):
+    new_user = user.dict()
+    new_user["roles"] = ["public"]
+
+    previous_user = user_collection.find_one(filter={"username": user.username})
+    if previous_user:
+        raise HTTPException(409, detail=f"Username '{user.username}' already taken.")
+    if not check_valid_password(user.password):
+        raise HTTPException(401, detail="Password is not valid.")
+
+    new_user["password"] = encrypt_password(new_user["password"])
+
+    user_collection.insert_one(new_user)
+
+    return signJWT(user.username)
+
+
+@api.post(
+    "/users/signin",
+    tags=["Users"],
+    responses={
+        200: {"description": "OK"},
+        401: {"description": "Username or credentials are not valid."},
+    },
+)
+def user_login(user: UserLogin):
+    if check_user(user, collection=user_collection):
+        return signJWT(user.username)
+    raise HTTPException(401, detail="Username or credentials are not valid.")
+
+
+@api.get(
+    "/aliases",
+    tags=["Model"],
+    responses={200: {"description": "OK", "model": List[AliasDescription]}},
+)
+def get_aliases():
+    """Returns the list of aliases that are anonymized and their description"""
     return [
-        TagDescription(text=k, tag=v) for k, v in ANONYMIZED_TAGS_DESCRIPTION.items()
+        AliasDescription(text=k, alias=v)
+        for k, v in ANONYMIZED_ALIASES_DESCRIPTION.items()
     ]
 
 
 @api.get(
-    "/tags/{tag}",
-    tags=["Default"],
+    "/aliases/{alias}",
+    tags=["Model"],
     responses={
-        200: {"description": "OK", "model": TagDescription},
+        200: {"description": "OK", "model": AliasDescription},
         404: {"description": "Not found"},
     },
 )
-def get_tag(tag: str):
-    if tag not in ANONYMIZED_TAGS_DESCRIPTION:
-        raise HTTPException(404, detail=f"Tag ID '{tag}' not found")
-    return TagDescription(tag=tag, description=ANONYMIZED_TAGS_DESCRIPTION[tag])
+def get_alias(alias: str):
+    if alias not in ANONYMIZED_ALIASES_DESCRIPTION:
+        raise HTTPException(404, detail=f"Alias ID '{alias}' not found")
+    return AliasDescription(
+        alias=alias, description=ANONYMIZED_ALIASES_DESCRIPTION[alias]
+    )
 
 
 @api.post(
-    "/model/tags",
+    "/model/aliases",
     tags=["Model"],
-    responses={200: {"description": "OK", "model": List[Tag]}},
+    responses={200: {"description": "OK", "model": List[Alias]}},
 )
-def post_get_named_entities(sentence: Sentence):
+def post_get_named_entities(text: Text):
     entities = get_entities(
-        tagger=tagger, raw_sentence=sentence.sentence, tags_to_anonymize=ANONYMIZED_TAGS
+        tagger=tagger, raw_text=text.text, aliases_to_anonymize=ANONYMIZED_ALIASES
     )
-    return [Tag(text=k, tag=v) for k, v in entities.items()]
+    return [Alias(text=k, alias=v) for k, v in entities.items()]
 
 
 @api.post(
     "/model/anonymize",
     tags=["Model"],
-    responses={200: {"description": "OK", "model": AnonymizedTextWithTags}},
+    responses={200: {"description": "OK", "model": AnonymizedTextWithAliases}},
 )
-def post_anonymize_sentence(sentence: Sentence):
-    raw_sentence = sentence.sentence
+def post_anonymize_text(text: Text):
+    raw_text = text.text
 
-    entities = get_entities(
-        tagger=tagger, raw_sentence=raw_sentence, tags_to_anonymize=ANONYMIZED_TAGS
+    aliases = get_entities(
+        tagger=tagger, raw_text=raw_text, aliases_to_anonymize=ANONYMIZED_ALIASES
     )
 
-    new_sentence = replace_text(raw_sentence=raw_sentence, entities=entities)
+    new_text = replace_text(raw_text=raw_text, entities=aliases)
 
-    response = AnonymizedTextWithTags(
-        raw_text=raw_sentence,
-        anonymized_text=new_sentence,
-        tags=[Tag(text=k, tag=v) for k, v in entities.items()],
+    response = AnonymizedTextWithAliases(
+        raw_text=raw_text,
+        anonymized_text=new_text,
+        aliases=[Alias(**a) for a in format_aliases(aliases)],
     )
     return response
 
@@ -167,8 +216,10 @@ def get_articles(
     date_start: datetime.datetime = Query(default=None),
     date_end: datetime.datetime = Query(default=None),
     sections: List[str] = Query(default=None),
+    current_user: User = Depends(get_current_user),
 ):
-
+    ROUTE_NAME = "articles.read.multiple"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     collections = category if category else CATEGORIES
 
     mongo_filter = {}
@@ -188,7 +239,7 @@ def get_articles(
 
     results = []
     for c in collections:
-        results.extend(map(format_object_id, db[c].find(filter=mongo_filter)))
+        results.extend(map(format_object_id, article_db[c].find(filter=mongo_filter)))
 
     results = [Article(**r) for r in results]
 
@@ -203,11 +254,17 @@ def get_articles(
         404: {"description": "Article or category not found"},
     },
 )
-def get_article(category: str, object_id: str):
+def get_article(
+    category: str, object_id: str, current_user: User = Depends(get_current_user)
+):
+    ROUTE_NAME = "articles.read"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
     try:
-        result = db[category].find_one({"_id": bson.objectid.ObjectId(object_id)})
+        result = article_db[category].find_one(
+            {"_id": bson.objectid.ObjectId(object_id)}
+        )
     except bson.errors.InvalidId:
         raise HTTPException(422, detail=f"Id '{object_id}' is not valid.")
 
@@ -221,7 +278,11 @@ def get_article(category: str, object_id: str):
     tags=["Data"],
     responses={200: {"description": "OK", "model": Article}},
 )
-def post_new_article(article: NewArticle):
+def post_new_article(
+    article: NewArticle, current_user: User = Depends(get_current_user)
+):
+    ROUTE_NAME = "articles.create"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     category = article.source
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' does not exist.")
@@ -231,13 +292,13 @@ def post_new_article(article: NewArticle):
     article_data["events"] = [
         {
             "type": "insertion",
-            "author": "paul_dechorgnat",  # TODO: change this
+            "author": current_user.username,
             "date": insertion_date,
             "mode": "single",
         }
     ]
-    result = db[category].insert_one(article_data)
-    new_article = db[category].find_one(result.inserted_id)
+    result = article_db[category].insert_one(article_data)
+    new_article = article_db[category].find_one(result.inserted_id)
 
     return Article(**format_object_id(new_article))
 
@@ -247,7 +308,11 @@ def post_new_article(article: NewArticle):
     tags=["Data"],
     responses={200: {"description": "OK", "model": List[Article]}},
 )
-def post_new_articles_batch(articles_data: List[NewArticle]):
+def post_new_articles_batch(
+    articles_data: List[NewArticle], current_user: User = Depends(get_current_user)
+):
+    ROUTE_NAME = "articles.create.multiple"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     articles = {}
     insertion_date = datetime.datetime.utcnow()
     for article in articles_data:
@@ -260,7 +325,7 @@ def post_new_articles_batch(articles_data: List[NewArticle]):
         article_data["events"] = [
             {
                 "type": "insertion",
-                "author": "paul_dechorgnat",  # TODO: change this
+                "author": current_user.username,
                 "date": insertion_date,
                 "mode": "batch",
             }
@@ -270,9 +335,9 @@ def post_new_articles_batch(articles_data: List[NewArticle]):
     new_articles = []
 
     for c in articles:
-        r = db[c].insert_many(articles[c])
+        r = article_db[c].insert_many(articles[c])
         inserted_ids = r.inserted_ids
-        new_articles.extend(db[c].find({"_id": {"$in": inserted_ids}}))
+        new_articles.extend(article_db[c].find({"_id": {"$in": inserted_ids}}))
 
     return [Article(**format_object_id(a)) for a in new_articles]
 
@@ -285,10 +350,16 @@ def post_new_articles_batch(articles_data: List[NewArticle]):
         404: {"description": "Article or category not found"},
     },
 )
-def delete_article(category: str, object_id: str):
+def delete_article(
+    category: str, object_id: str, current_user: User = Depends(get_current_user)
+):
+    ROUTE_NAME = "articles.delete"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
-    result = db[category].delete_one(filter={"_id": bson.objectid.ObjectId(object_id)})
+    result = article_db[category].delete_one(
+        filter={"_id": bson.objectid.ObjectId(object_id)}
+    )
     if result.deleted_count == 0:
         raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
     return {"message": "object deleted"}
@@ -302,14 +373,21 @@ def delete_article(category: str, object_id: str):
         404: {"description": "Article or category not found"},
     },
 )
-def update_article_data(category: str, object_id: str, new_article: UpdateArticleData):
+def update_article_data(
+    category: str,
+    object_id: str,
+    new_article: UpdateArticleData,
+    current_user: User = Depends(get_current_user),
+):
+    ROUTE_NAME = "articles.update"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
 
     object_id = bson.objectid.ObjectId(object_id)
 
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
 
-    old_article_events = db[category].find_one(
+    old_article_events = article_db[category].find_one(
         filter={"_id": object_id}, projection={"events": 1, "_id": 0}
     )
 
@@ -320,19 +398,252 @@ def update_article_data(category: str, object_id: str, new_article: UpdateArticl
     new_article_data["events"] += [
         {
             "type": "modification",
-            "author": "paul_dechorgnat",  # TODO: change that
+            "author": current_user.username,
             "date": datetime.datetime.utcnow(),
         }
     ]
 
-    from pprint import pprint
-
-    pprint(new_article_data)
-
-    db[category].update_one(
+    article_db[category].update_one(
         filter={"_id": object_id}, update={"$set": new_article_data}
     )
 
-    final_data = db[category].find_one(filter={"_id": object_id})
+    final_data = article_db[category].find_one(filter={"_id": object_id})
 
     return Article(**format_object_id(final_data))
+
+
+@api.put(
+    "/data/articles/{category}/{object_id}/auto",
+    tags=["Data"],
+    responses={
+        200: {"description": "OK", "model": Article},
+        404: {"description": "Article or category not found"},
+    },
+)
+def put_auto_anonymized_article(
+    object_id: str, category: str, current_user: User = Depends(get_current_user)
+):
+    """Generates the automatic anonymization of the specified article"""
+    ROUTE_NAME = "articles.auto_alias"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    object_id = bson.objectid.ObjectId(object_id)
+
+    if category not in CATEGORIES:
+        raise HTTPException(404, detail=f"Category '{category}' not found.")
+
+    old_article = article_db[category].find_one(
+        filter={"_id": object_id}, projection={"raw_text": 1, "events": 1, "_id": 0}
+    )
+
+    if not old_article:
+        raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
+
+    aliases = get_entities(tagger=tagger, raw_text=old_article["raw_text"])
+
+    auto_anonymized_text = replace_text(
+        raw_text=old_article["raw_text"], entities=aliases
+    )
+
+    new_data = {
+        **old_article,
+        "auto_anonymized_text": auto_anonymized_text,
+        "auto_anonymized_aliases": format_aliases(aliases),
+    }
+    new_data["events"] = old_article["events"] + [
+        {
+            "type": "auto_anonymization",
+            "date": datetime.datetime.utcnow(),
+            "author": current_user.username,
+        }
+    ]
+
+    article_db[category].update_one(
+        filter={"_id": object_id}, update={"$set": new_data}
+    )
+
+    result = article_db[category].find_one(filter={"_id": object_id})
+
+    return Article(**format_object_id(result))
+
+
+@api.put(
+    "/data/articles/{category}/{object_id}/manual",
+    tags=["Data"],
+    responses={
+        200: {"description": "OK", "model": Article},
+        404: {"description": "Article or category not found"},
+    },
+)
+def put_manual_anonymized_article(
+    object_id: str,
+    category: str,
+    anonymized_data: ManualAnonymizedData,
+    current_user: User = Depends(get_current_user),
+):
+    """Generates the automatic manual of the specified article"""
+    ROUTE_NAME = "articles.manual_alias"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    object_id = bson.objectid.ObjectId(object_id)
+
+    if category not in CATEGORIES:
+        raise HTTPException(404, detail=f"Category '{category}' not found.")
+
+    old_article = article_db[category].find_one(
+        filter={"_id": object_id}, projection={"events": 1, "_id": 0}
+    )
+
+    if not old_article:
+        raise HTTPException(404, detail=f"Object with id '{object_id}' not found.")
+
+    new_data = {
+        "manual_anonymized_text": anonymized_data.manual_anonymized_text,
+        "manual_anonymized_aliases": anonymized_data.dict()[
+            "manual_anonymized_aliases"
+        ],
+    }
+    new_data["events"] = old_article["events"] + [
+        {
+            "type": "manual_anonymization",
+            "date": datetime.datetime.utcnow(),
+            "author": current_user.username,
+        }
+    ]
+
+    article_db[category].update_one(
+        filter={"_id": object_id}, update={"$set": new_data}
+    )
+
+    result = article_db[category].find_one(filter={"_id": object_id})
+
+    return Article(**format_object_id(result))
+
+
+@api.get(
+    "/users",
+    tags=["User Administration"],
+    responses={200: {"description": "OK", "model": List[User]}},
+)
+def get_users(current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.read.multiple"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    return [
+        User(**a) for a in user_collection.find(filter={}, projection={"password": 0})
+    ]
+
+
+@api.get(
+    "/users/{username}",
+    tags=["User Administration"],
+    responses={
+        200: {"description": "OK", "model": User},
+        404: {"description": "User not found."},
+    },
+)
+def get_user(username: str, current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.read"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+    if not user:
+        raise HTTPException(404, detail=f"User '{username} not found.")
+
+    return User(**user)
+
+
+@api.delete(
+    "/users/{username}",
+    tags=["User Administration"],
+    responses={200: {"description": "OK"}, 404: {"description": "User not found."}},
+)
+def delete_user(username: str, current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.delete"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+    if not user:
+        raise HTTPException(404, detail=f"User '{username} not found.")
+    user_collection.delete_one(filter={"username": username})
+
+    return {"message": "object deleted"}
+
+
+@api.post(
+    "/users",
+    tags=["User Administration"],
+    responses={
+        200: {"description": "OK", "model": User},
+        409: {"description": "Username already taken."},
+        401: {"description": "Password is not valid."},
+    },
+)
+def post_user(user_data: User, current_user: User = Depends(get_current_user)):
+    ROUTE_NAME = "users.create"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    previous_user = user_collection.find_one(filter={"username": user_data.username})
+    if previous_user:
+        raise HTTPException(
+            409, detail=f"Username '{user_data.username}' already taken."
+        )
+    if not check_valid_password(user_data.password):
+        raise HTTPException(401, detail="Password is not valid.")
+
+    data_dict = user_data.dict()
+    data_dict["password"] = encrypt_password(data_dict["password"])
+
+    user_collection.insert_one(data_dict)
+
+    new_user = user_collection.find_one(
+        filter={"username": user_data.username}, projection={"password": 0}
+    )
+
+    return User(**new_user)
+
+
+@api.put(
+    "/users/{username}",
+    tags=["User Administration"],
+    responses={
+        200: {"description": "OK", "model": User},
+        404: {"description": "User not found."},
+    },
+)
+def update_user(
+    username: str,
+    new_user_data: UserData,
+    current_user: User = Depends(get_current_user),
+):
+    ROUTE_NAME = "users.update"
+    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+    if not user:
+        raise HTTPException(404, detail=f"User '{username} not found.")
+
+    new_password = new_user_data.password
+    new_user_data_dict = new_user_data.dict(exclude_unset=True)
+
+    if new_password:
+        if not check_valid_password(new_password):
+            raise HTTPException(401, detail="Password is not valid.")
+
+        new_user_data_dict["password"] = encrypt_password(new_password)
+
+    user_collection.update_one(
+        filter={"username": username}, update={"$set": new_user_data_dict}
+    )
+
+    user = user_collection.find_one(
+        filter={"username": username}, projection={"password": 0}
+    )
+
+    return User(**user)

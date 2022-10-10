@@ -1,7 +1,28 @@
-ANONYMIZED_TAGS_DESCRIPTION = {
+import os
+
+ANONYMIZED_ALIASES_DESCRIPTION = {
     "LOC": "Location, place, town, country, ...",
     "PER": "Person",
     "ORG": "Organization, Company, ...",
 }
 
-ANONYMIZED_TAGS = list(ANONYMIZED_TAGS_DESCRIPTION.keys())
+ANONYMIZED_ALIASES = list(ANONYMIZED_ALIASES_DESCRIPTION.keys())
+
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
+# ENVIRONMENT should be one of dev, prod or docker-compose
+
+MONGO_URL = "mongodb://localhost:27017"
+
+if ENVIRONMENT == "docker-compose":
+    MONGO_URL = "mongodb://my_mongo:27017"
+
+
+ADMIN_DB = "api_administration"
+ADMIN_USER_COLLECTION = "users"
+ADMIN_ROLE_COLLECTION = "roles"
+ARTICLE_DB = "articles"
+
+JWT_SECRET = "my_secret"  # TODO: change
+JWT_ALGORITHM = "HS256"
+
+CATEGORIES = ["news", "business", "health", "entertainment", "sport", "politics"]

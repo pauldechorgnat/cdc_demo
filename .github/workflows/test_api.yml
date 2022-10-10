@@ -17,7 +17,7 @@ jobs:
           python-version: "3.8"
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install black flake8 reorder-python-imports
 
       - name: Lint api with flake8
         run: flake8 --max-line-length=88 api
@@ -32,7 +32,7 @@ jobs:
         run: black tests -l88 --check
 
       - name: Lint api with reorder-python-imports
-        run: reorder-python-imports api/**/*.py
+        run: reorder-python-imports api/*.py
 
       - name: Lint tests with reorder-python-imports
         run: reorder-python-imports tests/*.py
@@ -59,8 +59,14 @@ jobs:
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.8.0
 
+      - name: Download NLTK data
+        run: python3 -m nltk.downloader punkt stopwords
+
+      - name: Fill DB
+        run: python3 tests/fill_db.py
+
       - name: Run API
         run: python3 -m uvicorn api.main:api &
 
       - name: Run tests
-        run: python3 -m python3 -m pytest tests -vv --disable-warnings
+        run: python3 -m pytest tests -vv --disable-warnings

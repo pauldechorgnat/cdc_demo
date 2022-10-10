@@ -3,6 +3,12 @@ import datetime
 import config
 import pytest
 import requests
+from pymongo import MongoClient
+
+from api.authentication import encrypt_password
+from api.config import ADMIN_DB
+from api.config import ADMIN_USER_COLLECTION
+from api.config import ARTICLE_DB
 
 
 @pytest.fixture
@@ -17,7 +23,15 @@ def fake_article_data():
         "headline": "fake headline",
         "source": "sport",
         "keywords": ["fake", "keywords"],
-        "raw_text": "The UN is said to meet in New-York according to Donald Trump.",
+        "raw_text": config.TEXT,
+        "events": [
+            {
+                "type": "insertion",
+                "author": "test",
+                "date": datetime.datetime.utcnow(),
+                "mode": "single",
+            }
+        ],
     }
 
     return data
@@ -25,25 +39,69 @@ def fake_article_data():
 
 @pytest.fixture
 def article(request, fake_article_data):
-    object_created_list = []
+    object_created_list = {}
 
     def create_article(**kwargs):
         data = {**fake_article_data, **kwargs}
-        response = requests.post(url=f"{config.API_URL}/data/articles", json=data)
+        data["hash"] = hash(data["raw_text"])
 
-        response.raise_for_status()
-        article = response.json()
+        article_collection = MongoClient()[ARTICLE_DB][data["source"]]
 
-        object_created_list.append(str(article["object_id"]))
+        result = article_collection.insert_one(data)
 
-        return article
+        object_created_list[data["source"]] = object_created_list.get(
+            data["source"], []
+        ) + [result.inserted_id]
+
+        data["object_id"] = str(result.inserted_id)
+
+        return data
 
     def finalizer():
-        for object_id in object_created_list:
-            requests.delete(
-                url=f"{config.API_URL}/data/articles/sport/{object_id}"
-            ).raise_for_status()
+        for category in object_created_list:
+            article_collection = MongoClient()[ARTICLE_DB][category]
+            for object_id in object_created_list[category]:
+                article_collection.delete_one({"_id": object_id})
 
     request.addfinalizer(finalizer)
 
     return create_article
+
+
+@pytest.fixture
+def fake_user_data():
+    return {
+        "username": "username",
+        "password": "ComplexPassword1234!",
+        "roles": ["admin"],
+    }
+
+
+@pytest.fixture
+def user(request, fake_user_data):
+    user_created_list = []
+    col = MongoClient()[ADMIN_DB][ADMIN_USER_COLLECTION]
+
+    def create_user(**kwargs):
+        data = {**fake_user_data, **kwargs}
+        clear_password = data["password"]
+        data["password"] = encrypt_password(clear_password)
+
+        col.insert_one(data)
+
+        user_created_list.append(data["username"])
+        response = requests.post(
+            f"{config.API_URL}/users/signin",
+            json={"username": data["username"], "password": clear_password},
+        )
+        response.raise_for_status()
+        data["access_token"] = response.json()["access_token"]
+
+        return data
+
+    def finalizer():
+        col.delete_many(filter={"username": {"$in": user_created_list}})
+
+    request.addfinalizer(finalizer)
+
+    return create_user

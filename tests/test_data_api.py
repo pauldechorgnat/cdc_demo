@@ -1,14 +1,15 @@
 import config
 import requests
-from pymongo import MongoClient
-
-client = MongoClient()
-db = client["articles"]
 
 
-def test_get_articles():
+def test_get_articles(user):
+    my_user = user(roles=["public"])
+    HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
+
     response = requests.get(
-        url=f"{config.API_URL}/data/articles", params={"category": ["sport", "health"]}
+        url=f"{config.API_URL}/data/articles",
+        params={"category": ["sport", "health"]},
+        headers=HEADERS,
     )
 
     assert response.status_code == 200, response.content
@@ -27,25 +28,30 @@ def test_get_articles():
 #     assert response.status_code == 404, response.content
 
 
-def test_get_articles_section(article):
-    article1 = article(section="fake_section")
-    article2 = article(section="fake_section")
-    article3 = article(section="fake_section")
+def test_get_articles_section(article, user):
+    my_user = user(roles=["public"])
+    HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
+
+    articles = [article(section="fake_section") for _ in range(3)]
 
     response = requests.get(
-        url=f"{config.API_URL}/data/articles", params={"sections": ["fake_section"]}
+        url=f"{config.API_URL}/data/articles",
+        params={"sections": ["fake_section"]},
+        headers=HEADERS,
     )
 
     assert response.status_code == 200, response.content
 
     data = response.json()
 
-    assert len(data) == 3
+    assert len(data) == len(articles)
     for i in data:
         assert i["section"] == "fake_section"
 
 
-def test_update_article(article):
+def test_update_article(article, user):
+    my_user = user(roles=["admin"])
+    HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
 
     my_article = article()
 
@@ -55,7 +61,9 @@ def test_update_article(article):
     new_data = {"author": "Paul"}
 
     response = requests.put(
-        url=f"{config.API_URL}/data/articles/{category}/{object_id}", json=new_data
+        url=f"{config.API_URL}/data/articles/{category}/{object_id}",
+        json=new_data,
+        headers=HEADERS,
     )
 
     assert response.status_code == 200, response.content
@@ -65,4 +73,67 @@ def test_update_article(article):
     old_events = my_article.pop("events")
     new_events = data.pop("events")
 
-    assert data == {**my_article, **new_data}
+    assert data["author"] == "Paul"
+    assert len(old_events) == len(new_events) - 1
+
+
+def test_auto_anonymize(article, user):
+    my_user = user(roles=["contributor"])
+    HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
+    category = "sport"
+    my_article = article()
+
+    object_id = my_article["object_id"]
+
+    response = requests.put(
+        url=f"{config.API_URL}/data/articles/{category}/{object_id}/auto",
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 200, response.content
+
+    data = response.json()
+
+    auto_anonymized_text = data.pop("auto_anonymized_text")
+    auto_anonymized_aliases = data.pop("auto_anonymized_aliases")
+    new_events = data.pop("events")
+
+    old_events = my_article.pop("events")
+
+    assert auto_anonymized_text == config.ANONYMIZED_TEXT
+    assert len(new_events) == len(old_events) + 1
+
+    assert auto_anonymized_aliases == config.FORMATTED_ALIASES
+
+
+def test_manual_anonymize(article, user):
+    my_user = user(roles=["corrector"])
+    HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
+    category = "sport"
+    my_article = article()
+
+    object_id = my_article["object_id"]
+
+    response = requests.put(
+        url=f"{config.API_URL}/data/articles/{category}/{object_id}/manual",
+        json={
+            "manual_anonymized_aliases": config.FORMATTED_ALIASES,
+            "manual_anonymized_text": config.ANONYMIZED_TEXT,
+        },
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 200, response.content
+
+    data = response.json()
+
+    manual_anonymized_text = data.pop("manual_anonymized_text")
+    manual_anonymized_aliases = data.pop("manual_anonymized_aliases")
+    new_events = data.pop("events")
+
+    old_events = my_article.pop("events")
+
+    assert manual_anonymized_text == config.ANONYMIZED_TEXT
+    assert len(new_events) == len(old_events) + 1
+
+    assert manual_anonymized_aliases == config.FORMATTED_ALIASES

@@ -7,13 +7,13 @@ Ce repo est un petit exercice qui consiste à créer un modèle d'anonymisation 
 - [x] Trouver un jeu de données contenant des articles avec des noms propres
 - [x] Créer un modèle d'anonymisation en utilisant un modèle de NER
 - [x] Créer une API qui permet d'exposer le modèle
-- [ ] Mettre une base de données MongoDB (dockerisée) pour exposer les données
-- [ ] Créer un modèle de données cohérent
-- [ ] Créer un fichier `docker-compose.yml` pour lancer le service
-- [ ] Créer les Github Actions de test + lint
+- [x] Mettre une base de données MongoDB (dockerisée) pour exposer les données
+- [x] Créer un modèle de données cohérent (cf [ce fichier](/data_model/README.md))
+- [x] Créer un fichier `docker-compose.yml` pour lancer le service
+- [x] Créer les Github Actions de test + lint
 - [ ] Trouver un support de déploiement (Azure, AWS ?)
 - [ ] Créer les Github Actions de déploiement
-- [ ] Gérer la sécurité de l'application
+- [x] Gérer la sécurité de l'application
 - [ ] Gérer les environnements de dev et de prod
 
 ## Source de données
@@ -63,7 +63,7 @@ source venv/bin/activate
 Pour fonctionner, l'API a besoin d'une base MongoDB disponible sur le port 27017 de la machine. J'utilise Docker pour instancier une telle base:
 
 ```sh
-docker container run --name my_mongo -d --rm -v `pwd`/../mongo_docker/data:/data/db -p 27017:27017 mongo:latest
+docker container run --name my_mongo -d --rm -p 27017:27017 -v `pwd`/../mongo_docker/data:/data/db -p 27017:27017 mongo:latest
 ```
 
 Une fois le container lancé, on peut lancer l'API:
@@ -106,3 +106,59 @@ sh api_docker/build_api_image.sh
 ```
 
 Par défaut cette image s'appelle `pauldechorgnat/article_api`.
+
+Pour lancer l'API via docker, il suffit de faire:
+
+```sh
+docker container run -p 8000:8000 pauldechorgnat/article_api:latest
+```
+
+### Docker-Compose
+
+J'ai aussi créé un [fichier](docker-compose/docker-compose.yaml) `docker-compose.yaml` pour lancer les deux containers en même temps. Une fois l'image `pauldechorgnat/article_api` créée, on peut simplement lancer l'ensemble avec:
+
+```sh
+ docker-compose -f ./docker-compose/docker-compose.yaml up
+```
+
+## Sécurité de l'API
+
+### Authentification
+
+Une authentification via des JWT pourrait être intéressante: assez [facile](https://testdriven.io/blog/fastapi-jwt-auth/) à mettre en place et on pourrait ensuite stocker les identifiants dans une collection MongoDB (on tâchera d'encoder les mots de passe... On n'est pas chez Facebook ici).
+
+### Autorisation
+
+Concernant les autorisations à donner aux différents utilisateurs, on va essayer de définir des groupes de droits et ensuite définir les différentes autorisation.
+
+Les utilisateurs de l'API que je vois sont:
+
+1. Le public qui doit avoir accès aux données anonymisées automatiquement puis à la main mais pas aux autres méthodes. On pourra donc simplement cacher les données lors de la création du résultat dans le point de terminaison.
+2. Les correcteurs qui doivent avoir accès au endpoint de mise à jour manuelle.
+3. Les contributeurs qui peuvent ajouter des données
+4. L'admin qui peut tout faire (et gérer les utilisateurs?)
+
+### Modèle de données
+
+On veut donc une collection contenant les utilisateurs:
+
+```json
+{
+    "username": "paul_dechorgnat",
+    "encrypted_password": "***",
+    "roles": ["contributor", "admin", "corrector", "public"]
+}
+```
+
+Et une base contenant les règles:
+
+```json
+{
+    "role": "contributor",
+    "authorized": [
+        "",
+        "",
+        ""
+    ]
+}
+```

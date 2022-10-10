@@ -1,0 +1,60 @@
+[
+    {
+        "role": "admin",
+        "permissions": [
+            "users.create",
+            "users.update",
+            "users.delete",
+            "users.read",
+            "users.read.multiple",
+            "users.me",
+            "roles.create",
+            "roles.update",
+            "roles.delete",
+            "roles.read",
+            "articles.create",
+            "articles.create.multiple",
+            "articles.update",
+            "articles.delete",
+            "articles.read",
+            "articles.read.multiple",
+            "articles.manual_alias",
+            "articles.auto_alias"
+        ]
+    },
+    {
+        "role": "contributor",
+        "permissions": [
+            "articles.create",
+            "articles.create.multiple",
+            "articles.update",
+            "articles.delete",
+            "articles.read",
+            "articles.read.multiple",
+            "articles.auto_alias",
+            "users.me"
+        ]
+    },
+    {
+        "role": "corrector",
+        "permissions": [
+            "articles.create",
+            "articles.create.multiple",
+            "articles.update",
+            "articles.delete",
+            "articles.read",
+            "articles.read.multiple",
+            "articles.manual_alias",
+            "articles.auto_alias",
+            "users.me"
+        ]
+    },
+    {
+        "role": "public",
+        "permissions": [
+            "articles.read",
+            "articles.read.multiple",
+            "users.me"
+        ]
+    }
+]
