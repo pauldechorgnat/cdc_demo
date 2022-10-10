@@ -7,10 +7,6 @@ from nltk.tokenize import NLTKWordTokenizer
 from pymongo import MongoClient
 from tqdm import tqdm
 
-from api.config import ADMIN_DB
-from api.config import ADMIN_ROLE_COLLECTION
-
-
 client = MongoClient()
 db = client["articles"]
 
@@ -78,10 +74,10 @@ for r in tqdm(records):
     category_counter[category] = category_counter.get(category, 0) + 1
 
 
-role_collection = client[ADMIN_DB][ADMIN_ROLE_COLLECTION]
+role_collection = client["api_administration"]["roles"]
 role_collection.delete_many({})
 
-with open("api/roles.json", "r") as file:
+with open("tests/roles.json", "r") as file:
     roles = json.load(file)
 
 role_collection.insert_many(roles)
