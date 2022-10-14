@@ -40,6 +40,7 @@ from .models import Text
 from .models import UpdateArticleData
 from .utils import format_aliases
 from .utils import format_object_id
+from .utils import mask_texts
 
 warnings.filterwarnings(action="ignore")
 
@@ -74,14 +75,15 @@ async def get_current_user(token: str = Depends(JWTBearer())):
 
 
 def check_user_permissions(username, route_name):
-    permission = check_permissions(
+    roles = check_permissions(
         username=username,
         route_name=route_name,
         user_collection=user_collection,
         role_collection=role_collection,
     )
-    if not permission:
+    if not isinstance(roles, list):
         raise HTTPException(403, detail="User is not allowed to perform this action.")
+    return roles
 
 
 @api.get(
@@ -108,7 +110,7 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     tags=["Users"],
     responses={
         200: {"description": "OK"},
-        409: {"decription": "Username already taken."},
+        409: {"description": "Username already taken."},
         401: {"description": "Password is not valid."},
     },
 )
@@ -219,7 +221,9 @@ def get_articles(
     current_user: User = Depends(get_current_user),
 ):
     ROUTE_NAME = "articles.read.multiple"
-    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+    roles = check_user_permissions(
+        username=current_user.username, route_name=ROUTE_NAME
+    )
     collections = category if category else CATEGORIES
 
     mongo_filter = {}
@@ -241,7 +245,7 @@ def get_articles(
     for c in collections:
         results.extend(map(format_object_id, article_db[c].find(filter=mongo_filter)))
 
-    results = [Article(**r) for r in results]
+    results = [Article(**mask_texts(record=r, roles=roles)) for r in results]
 
     return results
 
@@ -258,7 +262,9 @@ def get_article(
     category: str, object_id: str, current_user: User = Depends(get_current_user)
 ):
     ROUTE_NAME = "articles.read"
-    check_user_permissions(username=current_user.username, route_name=ROUTE_NAME)
+    roles = check_user_permissions(
+        username=current_user.username, route_name=ROUTE_NAME
+    )
     if category not in CATEGORIES:
         raise HTTPException(404, detail=f"Category '{category}' not found.")
     try:
@@ -270,7 +276,7 @@ def get_article(
 
     if not result:
         raise HTTPException(404, detail=f"Article with id '{object_id}' not found.")
-    return Article(**format_object_id(result))
+    return Article(**mask_texts(record=format_object_id(result), roles=roles))
 
 
 @api.post(

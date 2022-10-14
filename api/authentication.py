@@ -73,9 +73,7 @@ def check_user(user: UserLogin, collection: Collection):
     user_data = collection.find_one(
         filter={"username": user.username, "password": encrypt_password(user.password)}
     )
-    if not user_data:
-        return False
-    return True
+    return user_data is not None
 
 
 class UserData(BaseModel):
@@ -141,4 +139,7 @@ def check_permissions(
 
     results = list(role_collection.aggregate(command))[0]["permissions"]
 
-    return route_name in results
+    if route_name in results:
+        return roles
+    else:
+        return False
