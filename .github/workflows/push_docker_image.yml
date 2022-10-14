@@ -25,7 +25,4 @@ jobs:
         run: sh api_docker/build_api_image.sh
 
       - name: Push Docker Image
-        uses: docker/build-push-action@v3
-        with:
-          push: true
-          tags: pauldechorgnat/cdc_demo_api:latest
+        run: docker image push pauldechorgnat/cdc_demo_api
