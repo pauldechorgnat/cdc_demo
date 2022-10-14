@@ -3,7 +3,7 @@ import requests
 
 
 def test_get_articles(user):
-    my_user = user(roles=["public"])
+    my_user = user(roles=["admin"])
     HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
 
     response = requests.get(
@@ -29,7 +29,7 @@ def test_get_articles(user):
 
 
 def test_get_articles_section(article, user):
-    my_user = user(roles=["public"])
+    my_user = user(roles=["admin"])
     HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
 
     articles = [article(section="fake_section") for _ in range(3)]
@@ -137,3 +137,39 @@ def test_manual_anonymize(article, user):
     assert len(new_events) == len(old_events) + 1
 
     assert manual_anonymized_aliases == config.FORMATTED_ALIASES
+
+
+def test_public_user_masks(user, article):
+    my_user = user(username=config.generate_fake_username(), roles=["public"])
+    my_other_user = user(username=config.generate_fake_username(), roles=["admin"])
+    HEADERS = {"Authorization": f"Bearer {my_user['access_token']}"}
+
+    my_article = article()
+    article_id = my_article["object_id"]
+    category = my_article["source"]
+
+    response = requests.get(
+        url=f"{config.API_URL}/data/articles/{category}/{article_id}", headers=HEADERS
+    )
+
+    assert response.status_code == 200, response.content
+
+    data = response.json()
+
+    assert data["raw_text"] == "***"
+    assert data["auto_anonymized_text"] == "***"
+    for a in data.get("manual_anonymized_aliases", []):
+        assert a["text"] == "***"
+    for a in data.get("auto_anonymized_aliases", []):
+        assert a["text"] == "***"
+
+    HEADERS = {"Authorization": f"Bearer {my_other_user['access_token']}"}
+    response = requests.get(
+        url=f"{config.API_URL}/data/articles/{category}/{article_id}", headers=HEADERS
+    )
+
+    assert response.status_code == 200, response.content
+
+    data = response.json()
+
+    assert data["raw_text"] == my_article["raw_text"], my_other_user
