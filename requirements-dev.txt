@@ -96,6 +96,7 @@ pluggy==1.0.0
 pptree==3.1
 pre-commit==2.20.0
 prometheus-client==0.14.1
+prometheus-fastapi-instrumentator==5.9.1
 prompt-toolkit==3.0.31
 psutil==5.9.2
 ptyprocess==0.7.0
