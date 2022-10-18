@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi import Query
 from flair.models import SequenceTagger
+from prometheus_fastapi_instrumentator import Instrumentator
 from pymongo import MongoClient
 
 from .aliasing_model import get_entities
@@ -59,6 +60,12 @@ user_collection = admin_db[ADMIN_USER_COLLECTION]
 
 
 api = FastAPI(title="Anonymized text", version=VERSION)
+
+
+@api.on_event("startup")
+async def startup():
+    Instrumentator().instrument(api).expose(api)
+
 
 default_responses = {200: {"description": "OK"}}
 

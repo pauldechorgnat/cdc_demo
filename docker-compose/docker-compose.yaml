@@ -21,6 +21,24 @@ services:
       - ENVIRONMENT=docker-compose
     depends_on:
       - mongodb
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: my_prometheus
+    ports:
+    - "9090:9090"
+    networks:
+      - my_network
+    volumes:
+      - ../prometheus_docker/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - api
+  dashboard:
+    image: grafana/grafana:latest
+    container_name: my_dashboard
+    ports:
+    - "3000:3000"
+    networks:
+      - my_network
 
 networks:
   my_network:
